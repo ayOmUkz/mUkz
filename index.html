@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ACTUAL TRADES — Top-Down Trading Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body data-trade-state="WAITING" data-market="ES" data-regime="TREND">
+
+  <!-- ============================================================= -->
+  <!-- HEADER · session, market, regime, live trade state             -->
+  <!-- ============================================================= -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">●</span>
+      <span class="brand-name">ACTUAL TRADES</span>
+      <span class="brand-tag">command center</span>
+    </div>
+
+    <div class="topbar-meta">
+      <div class="meta-block">
+        <span class="meta-label">Date</span>
+        <span class="meta-value" id="dateLabel">—</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">Session</span>
+        <span class="meta-value session-pill" id="sessionLabel" data-session="NY">NY</span>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">Market</span>
+        <select class="meta-select" id="market" aria-label="Market">
+          <option value="ES">ES — S&amp;P E-mini</option>
+          <option value="NQ">NQ — Nasdaq E-mini</option>
+          <option value="SPX">SPX — S&amp;P 500 Index</option>
+          <option value="XAUUSD">XAUUSD — Gold</option>
+          <option value="BTCUSD">BTCUSD — Bitcoin</option>
+        </select>
+      </div>
+      <div class="meta-block">
+        <span class="meta-label">Regime</span>
+        <div class="regime-toggle" role="radiogroup" aria-label="Market regime">
+          <button type="button" data-regime="TREND" aria-pressed="true">Trend</button>
+          <button type="button" data-regime="RANGE" aria-pressed="false">Range</button>
+          <button type="button" data-regime="EXPANSION" aria-pressed="false">Expansion</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="trade-state-badge" id="tradeStateBadge" data-state="WAITING">
+      <span class="dot"></span>
+      <span class="label">WAITING</span>
+    </div>
+  </header>
+
+  <!-- ============================================================= -->
+  <!-- MAIN GRID                                                     -->
+  <!-- ============================================================= -->
+  <main class="grid">
+
+    <!-- ─────────────────── 4H · MACRO BIAS ─────────────────────── -->
+    <section class="card card--4h" id="section-4h" data-tf="4H" aria-labelledby="title-4h">
+      <header class="card-header">
+        <div class="card-tf">4H</div>
+        <div class="card-title">
+          <h2 id="title-4h">SET THE DIRECTION</h2>
+          <p>Macro Bias Engine · Wyckoff phase · value vs imbalance</p>
+        </div>
+      </header>
+
+      <div class="field">
+        <label class="field-label">Bias</label>
+        <div class="bias-selector seg" role="radiogroup" aria-label="4H bias">
+          <button type="button" data-bias="BULL"    aria-pressed="false">Bullish</button>
+          <button type="button" data-bias="BEAR"    aria-pressed="false">Bearish</button>
+          <button type="button" data-bias="NEUTRAL" aria-pressed="false">Neutral</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="h4-structure">Market Structure</label>
+        <select id="h4-structure" data-field="h4.structure">
+          <option value="">— select —</option>
+          <option value="HH_HL">HH / HL  (uptrend)</option>
+          <option value="LH_LL">LH / LL  (downtrend)</option>
+          <option value="RANGE">Range  (sideways)</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="h4-levels">Key HTF Levels</label>
+        <textarea id="h4-levels" rows="2" data-field="h4.htfLevels"
+                  placeholder="e.g. 5240 (PWH), 5198 (POC), 5152 (PWL)"></textarea>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Supply / Demand Zones</label>
+        <ul class="tag-list" data-list="h4.zones" aria-live="polite"></ul>
+        <div class="tag-input">
+          <input type="text" data-add="h4.zones" placeholder="+ tag zone (e.g. 5180–5190 demand)"/>
+          <button type="button" data-add-btn="h4.zones">Add</button>
+        </div>
+      </div>
+
+      <div class="field field--row">
+        <div>
+          <label class="field-label" for="h4-poc">POC</label>
+          <input id="h4-poc" type="number" step="any" data-field="h4.poc" placeholder="—"/>
+        </div>
+        <div>
+          <label class="field-label" for="h4-vah">VAH</label>
+          <input id="h4-vah" type="number" step="any" data-field="h4.vah" placeholder="—"/>
+        </div>
+        <div>
+          <label class="field-label" for="h4-val">VAL</label>
+          <input id="h4-val" type="number" step="any" data-field="h4.val" placeholder="—"/>
+        </div>
+        <div>
+          <label class="field-label" for="h4-last">Last</label>
+          <input id="h4-last" type="number" step="any" data-field="h4.last" placeholder="—"/>
+        </div>
+      </div>
+
+      <p class="rule-banner">
+        <span class="rule-icon">⚠</span>
+        <span>Never trade against 4H direction. If price is inside the value area &amp; regime = RANGE → no trade.</span>
+      </p>
+
+      <div class="hint" id="h4Hint">Auction read: —</div>
+    </section>
+
+    <!-- ─────────────────── 1H · OPPORTUNITY ────────────────────── -->
+    <section class="card card--1h" id="section-1h" data-tf="1H" aria-labelledby="title-1h">
+      <header class="card-header">
+        <div class="card-tf">1H</div>
+        <div class="card-title">
+          <h2 id="title-1h">BUILD THE SETUP</h2>
+          <p>Opportunity Detection · liquidity sweeps · structure shifts · POIs</p>
+        </div>
+      </header>
+
+      <div class="field">
+        <label class="field-label">Liquidity Pools</label>
+        <ul class="tag-list" data-list="h1.liquidity"></ul>
+        <div class="tag-input">
+          <input type="text" data-add="h1.liquidity" placeholder="+ EQH @ 5238, EQL @ 5170…"/>
+          <button type="button" data-add-btn="h1.liquidity">Add</button>
+        </div>
+      </div>
+
+      <div class="field field--row">
+        <div>
+          <label class="field-label" for="h1-shift">Structure Event</label>
+          <select id="h1-shift" data-field="h1.shift">
+            <option value="None">None</option>
+            <option value="BOS">BOS — Break of Structure</option>
+            <option value="ChoCH">ChoCH — Change of Character</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="h1-swept">Liquidity Swept?</label>
+          <select id="h1-swept" data-field="h1.swept">
+            <option value="false">No</option>
+            <option value="true">Yes</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Order Blocks / FVGs</label>
+        <ul class="tag-list" data-list="h1.poi"></ul>
+        <div class="tag-input">
+          <input type="text" data-add="h1.poi" placeholder="+ OB 5188–5192, FVG 5196–5201…"/>
+          <button type="button" data-add-btn="h1.poi">Add</button>
+        </div>
+      </div>
+
+      <div class="alignment-readout" id="alignmentReadout" data-state="PENDING">
+        <span class="dot"></span>
+        <div>
+          <div class="readout-line">1H alignment with 4H: <strong id="alignText">PENDING</strong></div>
+          <div class="readout-sub" id="alignSub">Waiting on 4H bias, structure event, liquidity sweep &amp; POI.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────────────── 5M · EXECUTION ──────────────────────── -->
+    <section class="card card--5m" id="section-5m" data-tf="5M" aria-labelledby="title-5m">
+      <header class="card-header">
+        <div class="card-tf">5M</div>
+        <div class="card-title">
+          <h2 id="title-5m">EXECUTION ENGINE</h2>
+          <p>Entry Confirmation · trigger · momentum / absorption · risk</p>
+        </div>
+      </header>
+
+      <div class="locked-overlay" aria-hidden="true">
+        <div class="locked-msg">
+          <span>EXECUTION LOCKED</span>
+          <small>Resolve 4H + 1H alignment to unlock.</small>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="m5-trigger">Entry Trigger</label>
+        <select id="m5-trigger" data-field="m5.trigger">
+          <option value="None">None</option>
+          <option value="Engulfing">Engulfing candle</option>
+          <option value="Sweep">Sweep + reclaim</option>
+          <option value="FVG">FVG fill</option>
+          <option value="OB">OB tap rejection</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Confirmation</label>
+        <div class="check-row">
+          <label class="chk">
+            <input type="checkbox" data-field="m5.momentum"/>
+            <span>Momentum</span>
+          </label>
+          <label class="chk">
+            <input type="checkbox" data-field="m5.absorption"/>
+            <span>Absorption</span>
+          </label>
+          <label class="chk">
+            <input type="checkbox" data-field="m5.delta"/>
+            <span>Delta divergence</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field field--row">
+        <div>
+          <label class="field-label" for="m5-entry">Entry</label>
+          <input id="m5-entry" type="number" step="any" data-field="m5.entry" placeholder="—"/>
+        </div>
+        <div>
+          <label class="field-label" for="m5-stop">Stop</label>
+          <input id="m5-stop" type="number" step="any" data-field="m5.stop" placeholder="—"/>
+        </div>
+        <div>
+          <label class="field-label" for="m5-tp">Target</label>
+          <input id="m5-tp" type="number" step="any" data-field="m5.tp" placeholder="—"/>
+        </div>
+        <div>
+          <label class="field-label" for="m5-size">Size</label>
+          <input id="m5-size" type="number" step="any" data-field="m5.size" placeholder="contracts"/>
+        </div>
+      </div>
+
+      <div class="rr-box" id="rrBox" data-state="empty">
+        <div class="rr-label">Risk : Reward</div>
+        <div class="rr-value"><strong id="rrValue">—</strong></div>
+        <div class="rr-note" id="rrNote">enter prices to compute</div>
+      </div>
+    </section>
+
+    <!-- ─────────────────── TRADE OUTPUT ────────────────────────── -->
+    <section class="card card--output" id="section-output" aria-labelledby="title-output">
+      <header class="card-header">
+        <div class="card-title">
+          <h2 id="title-output">TRADE OUTPUT</h2>
+          <p>Journal · screenshot · post-trade review</p>
+        </div>
+        <div class="status-pill" id="statusPill" data-state="WAITING">WAITING</div>
+      </header>
+
+      <div class="field">
+        <label class="field-label" for="screenshot">Screenshot</label>
+        <input id="screenshot" type="file" accept="image/*"/>
+        <div class="screenshot-preview" id="screenshotPreview" hidden></div>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="notes">Notes — what did I see?</label>
+        <textarea id="notes" rows="4" data-field="notes"
+                  placeholder="Auction context, narrative, why this setup, why now…"></textarea>
+      </div>
+
+      <fieldset class="mistakes">
+        <legend>Mistake tracker</legend>
+        <label class="chk"><input type="checkbox" data-mistake="early"/>     <span>Entered too early</span></label>
+        <label class="chk"><input type="checkbox" data-mistake="counter"/>   <span>Counter-trend</span></label>
+        <label class="chk"><input type="checkbox" data-mistake="oversize"/>  <span>Oversized risk</span></label>
+        <label class="chk"><input type="checkbox" data-mistake="news"/>      <span>Ignored news event</span></label>
+        <label class="chk"><input type="checkbox" data-mistake="chase"/>     <span>Chased move</span></label>
+        <label class="chk"><input type="checkbox" data-mistake="moved-stop"/><span>Moved stop loss</span></label>
+      </fieldset>
+    </section>
+
+    <!-- ─────────────────── RULE ENGINE ─────────────────────────── -->
+    <aside class="card card--rules" id="section-rules" aria-labelledby="title-rules">
+      <header class="card-header">
+        <div class="card-title">
+          <h2 id="title-rules">RULE ENGINE</h2>
+          <p>Decision gate · doctrine over discretion</p>
+        </div>
+      </header>
+
+      <ul class="rules" id="ruleChecklist">
+        <li data-rule-row="r_4h">
+          <input type="checkbox" data-rule="r_4h" disabled/>
+          <span class="rule-text">4H aligned</span>
+          <span class="rule-source">auto</span>
+        </li>
+        <li data-rule-row="r_1h">
+          <input type="checkbox" data-rule="r_1h" disabled/>
+          <span class="rule-text">1H structure confirmed</span>
+          <span class="rule-source">auto</span>
+        </li>
+        <li data-rule-row="r_5m">
+          <input type="checkbox" data-rule="r_5m" disabled/>
+          <span class="rule-text">5M entry trigger</span>
+          <span class="rule-source">auto</span>
+        </li>
+        <li data-rule-row="r_risk">
+          <input type="checkbox" data-rule="r_risk" disabled/>
+          <span class="rule-text">Risk defined &amp; R:R ≥ 2</span>
+          <span class="rule-source">auto</span>
+        </li>
+        <li data-rule-row="r_news">
+          <input type="checkbox" data-rule="r_news"/>
+          <span class="rule-text">No news event in next 30m</span>
+          <span class="rule-source">manual</span>
+        </li>
+      </ul>
+
+      <button type="button" id="executeBtn" class="execute-btn" disabled>
+        <span class="execute-label">EXECUTE TRADE</span>
+        <span class="execute-sub" id="executeSub">resolve all rules first</span>
+      </button>
+
+      <div class="journal-meta">
+        <span>Logged trades: <strong id="journalCount">0</strong></span>
+        <button type="button" id="clearJournalBtn" class="link-btn">clear journal</button>
+      </div>
+    </aside>
+
+  </main>
+
+  <footer class="page-footer">
+    <span>Top-down · 4H → 1H → 5M · doctrine over discretion</span>
+    <span>v0.1 — blueprint</span>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
