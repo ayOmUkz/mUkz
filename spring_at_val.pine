@@ -124,15 +124,15 @@ confirmed_trigger = (state == FORMING and
                      close_top_pct >= conf_close)
 
 // INVALIDATED criteria
-invalidation_trigger = state == FORMING and
-                       (elapsed > n_max or low < forming_low_v)
+invalidation_trigger = (state == FORMING and
+                        (elapsed > n_max or low < forming_low_v))
 
 // OF gates (evaluated when CONFIRMED triggers)
 of_universal_check = cvd_slope_n >= 0  // long direction
 of_variant_check   = not na(forming_cvd) and cvd_source > forming_cvd
 
-trade_fire_trigger = confirmed_trigger and
-                     (not require_of or (of_universal_check and of_variant_check))
+trade_fire_trigger = (confirmed_trigger and
+                      (not require_of or (of_universal_check and of_variant_check)))
 
 // =====================================================================
 // STATE TRANSITIONS (only on confirmed bars)
@@ -250,17 +250,17 @@ if show_table and barstate.islast
                        frame_width = 1,
                        bgcolor     = color.new(color.black, 70))
 
-    state_name = state == NONE        ? "NONE" :
-                 state == FORMING     ? "🟡 FORMING" :
-                 state == CONFIRMED   ? "🟠 CONFIRMED" :
-                 state == TRADE_FIRED ? "🟢 TRADE_FIRED" :
-                                        "🔴 INVALIDATED"
+    state_name = (state == NONE        ? "NONE" :
+                  state == FORMING     ? "🟡 FORMING" :
+                  state == CONFIRMED   ? "🟠 CONFIRMED" :
+                  state == TRADE_FIRED ? "🟢 TRADE_FIRED" :
+                                         "🔴 INVALIDATED")
 
-    state_bg   = state == TRADE_FIRED ? color.new(color.green,  30) :
-                 state == CONFIRMED   ? color.new(color.orange, 30) :
-                 state == FORMING     ? color.new(color.yellow, 30) :
-                 state == INVALIDATED ? color.new(color.red,    30) :
-                                        color.new(color.gray,   30)
+    state_bg   = (state == TRADE_FIRED ? color.new(color.green,  30) :
+                  state == CONFIRMED   ? color.new(color.orange, 30) :
+                  state == FORMING     ? color.new(color.yellow, 30) :
+                  state == INVALIDATED ? color.new(color.red,    30) :
+                                         color.new(color.gray,   30))
 
     table.cell(tbl, 0, 0, "Variant",                  text_color=color.white)
     table.cell(tbl, 1, 0, "Spring at VAL",            text_color=color.white)
