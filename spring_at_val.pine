@@ -1,0 +1,309 @@
+//@version=6
+// =====================================================================
+// A+ SETUPS PLAYBOOK — Variant Detector: Spring at VAL [v1.0]
+// Pine Script v6
+//
+// Implements:
+//   Step 4 (Two-Stage State Machine):  NONE → FORMING → CONFIRMED → TRADE_FIRED / INVALIDATED
+//   Step 5 (Two-Layer OF Gate):        Universal (CVD slope) + Variant-Specific (CVD divergence)
+//
+// Upstream (manual/external for v1):
+//   - Regime must be in {BALANCE_RANGING, BALANCE_RE-ACCUM, TREND_EXHAUSTION-down}
+//   - Location must qualify (Tier 1 VAL or stacked Tier 2)
+//
+// Downstream (alerts → webhook):
+//   - State transitions feed setup_attempts table
+//   - TRADE_FIRED feeds trades table + ACTUAL_TRADES
+// =====================================================================
+
+indicator(title="A+ Setups: Spring at VAL [v1.0]",
+          shorttitle="Spring@VAL",
+          overlay=true,
+          max_labels_count=500,
+          max_lines_count=500,
+          max_boxes_count=500,
+          dynamic_requests=false)
+
+// =====================================================================
+// INPUTS
+// =====================================================================
+g_loc   = "▼ Location"
+g_univ  = "▼ Universal Params"
+g_form  = "▼ FORMING Criteria"
+g_conf  = "▼ CONFIRMED Criteria"
+g_state = "▼ State Machine"
+g_of    = "▼ Order Flow Gates"
+g_vis   = "▼ Display"
+
+// Location (Step 3 output — pass VAL externally)
+val_input      = input.float(0.0, "VAL Level (manual or feed)", group=g_loc,
+                     tooltip="Pass the qualifying VAL from Step 3 location filter")
+proximity_mult = input.float(0.35, "Proximity (× ATR)", group=g_loc, step=0.05)
+
+// Universal params
+atr_len     = input.int(14, "ATR Length", group=g_univ)
+vol_sma_len = input.int(20, "Volume SMA Length", group=g_univ)
+
+// FORMING (Step 4)
+piercing_buf = input.float(0.05, "Sweep Buffer (× ATR)", group=g_form, step=0.01,
+                     tooltip="Bar.low must be < VAL - this × ATR for FORMING")
+
+// CONFIRMED (Step 4)
+conf_range = input.float(1.0, "Range Min (× ATR)", group=g_conf, step=0.1)
+conf_vol   = input.float(1.5, "Volume Min (× SMA)", group=g_conf, step=0.1)
+conf_close = input.float(0.5, "Close in Top % of Range", group=g_conf,
+                     step=0.05, minval=0.0, maxval=1.0)
+
+// State machine
+n_max       = input.int(3,  "FORMING → CONFIRMED N_max bars", group=g_state)
+inv_reset   = input.int(5,  "INVALIDATED reset window", group=g_state)
+fired_reset = input.int(10, "TRADE_FIRED reset window (placeholder)", group=g_state)
+
+// OF gates (Step 5)
+require_of   = input.bool(true, "Require OF gates to fire trade", group=g_of)
+cvd_source   = input.source(close, "CVD Source", group=g_of,
+                     tooltip="Wire to your CVD indicator's plot (LuxAlgo CVD or built-in)")
+slope_window = input.int(5, "CVD slope window (bars)", group=g_of)
+
+// Display
+show_levels = input.bool(true, "Show VAL line", group=g_vis)
+show_labels = input.bool(true, "Show state labels", group=g_vis)
+show_table  = input.bool(true, "Show state table", group=g_vis)
+show_zones  = input.bool(true, "Highlight FORMING bar zone", group=g_vis)
+
+// =====================================================================
+// DERIVED VALUES
+// =====================================================================
+atr_v        = ta.atr(atr_len)
+vol_sma      = ta.sma(volume, vol_sma_len)
+proximity_z  = atr_v * proximity_mult
+piercing_z   = atr_v * piercing_buf
+
+bar_range     = high - low
+close_top_pct = bar_range > 0 ? (close - low) / bar_range : 0.5
+
+cvd_slope_n = cvd_source - cvd_source[slope_window]
+
+// =====================================================================
+// STATE MACHINE — persistent state vars
+// =====================================================================
+const int NONE        = 0
+const int FORMING     = 1
+const int CONFIRMED   = 2
+const int TRADE_FIRED = 3
+const int INVALIDATED = 4
+
+var int    state            = NONE
+var int    forming_bar      = na
+var float  forming_low_v    = na
+var float  forming_cvd      = na
+var int    invalidated_at   = na
+var int    fired_at         = na
+var bool   of_universal_ok  = false
+var bool   of_variant_ok    = false
+var string suppress_reason  = ""
+
+// Helper: bars elapsed in FORMING
+elapsed = (state == FORMING and not na(forming_bar)) ? (bar_index - forming_bar) : 0
+
+// =====================================================================
+// DETECTION LOGIC (evaluated on bar close only — no repaint)
+// =====================================================================
+location_valid = val_input > 0 and math.abs(close - val_input) <= proximity_z
+swept_below    = val_input > 0 and low < (val_input - piercing_z)
+
+// FORMING criteria
+forming_trigger = state == NONE and location_valid and swept_below
+
+// CONFIRMED criteria
+confirmed_trigger = state == FORMING and
+                    elapsed <= n_max and
+                    close > val_input and
+                    bar_range > atr_v * conf_range and
+                    volume > vol_sma * conf_vol and
+                    close_top_pct >= conf_close
+
+// INVALIDATED criteria
+invalidation_trigger = state == FORMING and
+                       (elapsed > n_max or low < forming_low_v)
+
+// OF gates (evaluated when CONFIRMED triggers)
+of_universal_check = cvd_slope_n >= 0  // long direction
+of_variant_check   = not na(forming_cvd) and cvd_source > forming_cvd
+
+trade_fire_trigger = confirmed_trigger and
+                     (not require_of or (of_universal_check and of_variant_check))
+
+// =====================================================================
+// STATE TRANSITIONS (only on confirmed bars)
+// =====================================================================
+if barstate.isconfirmed
+    // Reset INVALIDATED → NONE after window
+    if state == INVALIDATED and (bar_index - invalidated_at) >= inv_reset
+        state := NONE
+        forming_bar := na
+        forming_low_v := na
+        forming_cvd := na
+        invalidated_at := na
+        of_universal_ok := false
+        of_variant_ok := false
+        suppress_reason := ""
+
+    // Reset TRADE_FIRED → NONE after window (placeholder; real reset = trade exit via webhook)
+    if state == TRADE_FIRED and not na(fired_at) and (bar_index - fired_at) >= fired_reset
+        state := NONE
+        forming_bar := na
+        forming_low_v := na
+        forming_cvd := na
+        fired_at := na
+
+    // FORMING entry (NONE → FORMING)
+    if state == NONE and forming_trigger
+        state := FORMING
+        forming_bar := bar_index
+        forming_low_v := low
+        forming_cvd := cvd_source
+
+    // FORMING transitions (in priority order)
+    else if state == FORMING
+        if invalidation_trigger
+            state := INVALIDATED
+            invalidated_at := bar_index
+        else if trade_fire_trigger
+            state := TRADE_FIRED
+            fired_at := bar_index
+            of_universal_ok := of_universal_check
+            of_variant_ok := of_variant_check
+        else if confirmed_trigger
+            state := CONFIRMED
+            of_universal_ok := of_universal_check
+            of_variant_ok := of_variant_check
+            suppress_reason := not of_universal_check ? "of_universal" : "of_variant"
+
+// =====================================================================
+// VISUAL OUTPUT — using v6 chart.point API for drawings
+// =====================================================================
+// VAL line (drawn once on last bar to avoid history clutter)
+if show_levels and val_input > 0 and barstate.islast
+    line.new(
+         first_point  = chart.point.from_index(bar_index - 200, val_input),
+         second_point = chart.point.from_index(bar_index + 10, val_input),
+         color        = color.new(color.aqua, 30),
+         width        = 2,
+         extend       = extend.right,
+         style        = line.style_dashed)
+
+// FORMING zone box
+if show_zones and forming_trigger and barstate.isconfirmed
+    box.new(
+         top_left     = chart.point.from_index(bar_index, val_input),
+         bottom_right = chart.point.from_index(bar_index + n_max, low),
+         border_color = color.new(color.yellow, 50),
+         bgcolor      = color.new(color.yellow, 90))
+
+// State labels
+if show_labels and barstate.isconfirmed
+    if forming_trigger
+        label.new(
+             point     = chart.point.from_index(bar_index, low - atr_v * 0.5),
+             text      = "🟡 FORMING",
+             style     = label.style_label_up,
+             color     = color.new(color.yellow, 0),
+             textcolor = color.black,
+             size      = size.small)
+
+    if trade_fire_trigger
+        label.new(
+             point           = chart.point.from_index(bar_index, high + atr_v * 0.5),
+             text            = "🟢 TRADE FIRES",
+             style           = label.style_label_down,
+             color           = color.new(color.green, 0),
+             textcolor       = color.white,
+             size            = size.normal,
+             text_formatting = text.format_bold)
+
+    if confirmed_trigger and not trade_fire_trigger
+        label.new(
+             point     = chart.point.from_index(bar_index, high + atr_v * 0.5),
+             text      = "🟠 CONFIRMED (suppressed: " + suppress_reason + ")",
+             style     = label.style_label_down,
+             color     = color.new(color.orange, 0),
+             textcolor = color.black,
+             size      = size.small)
+
+    if invalidation_trigger
+        label.new(
+             point     = chart.point.from_index(bar_index, low - atr_v * 0.5),
+             text      = "🔴 INVALIDATED",
+             style     = label.style_label_up,
+             color     = color.new(color.red, 0),
+             textcolor = color.white,
+             size      = size.small)
+
+// State table (top right)
+if show_table and barstate.islast
+    var table tbl = table.new(
+                       position    = position.top_right,
+                       columns     = 2,
+                       rows        = 9,
+                       frame_color = color.gray,
+                       frame_width = 1,
+                       bgcolor     = color.new(color.black, 70))
+
+    state_name = state == NONE        ? "NONE" :
+                 state == FORMING     ? "🟡 FORMING" :
+                 state == CONFIRMED   ? "🟠 CONFIRMED" :
+                 state == TRADE_FIRED ? "🟢 TRADE_FIRED" :
+                                        "🔴 INVALIDATED"
+
+    state_bg   = state == TRADE_FIRED ? color.new(color.green,  30) :
+                 state == CONFIRMED   ? color.new(color.orange, 30) :
+                 state == FORMING     ? color.new(color.yellow, 30) :
+                 state == INVALIDATED ? color.new(color.red,    30) :
+                                        color.new(color.gray,   30)
+
+    table.cell(tbl, 0, 0, "Variant",                  text_color=color.white)
+    table.cell(tbl, 1, 0, "Spring at VAL",            text_color=color.white)
+    table.cell(tbl, 0, 1, "State",                    text_color=color.white)
+    table.cell(tbl, 1, 1, state_name, bgcolor=state_bg, text_color=color.white)
+    table.cell(tbl, 0, 2, "VAL",                      text_color=color.white)
+    table.cell(tbl, 1, 2, str.tostring(val_input, "#.##"), text_color=color.white)
+    table.cell(tbl, 0, 3, "Elapsed",                  text_color=color.white)
+    table.cell(tbl, 1, 3, state == FORMING ? str.tostring(elapsed) + "/" + str.tostring(n_max) : "-",
+                          text_color=color.white)
+    table.cell(tbl, 0, 4, "ATR",                      text_color=color.white)
+    table.cell(tbl, 1, 4, str.tostring(atr_v, "#.##"), text_color=color.white)
+    table.cell(tbl, 0, 5, "OF Universal",             text_color=color.white)
+    table.cell(tbl, 1, 5, of_universal_check ? "✅" : "❌",
+                          bgcolor = of_universal_check ? color.new(color.green, 50) : color.new(color.red, 50))
+    table.cell(tbl, 0, 6, "OF Variant",               text_color=color.white)
+    table.cell(tbl, 1, 6, of_variant_check ? "✅" : "❌",
+                          bgcolor = of_variant_check ? color.new(color.green, 50) : color.new(color.red, 50))
+    table.cell(tbl, 0, 7, "CVD slope " + str.tostring(slope_window), text_color=color.white)
+    table.cell(tbl, 1, 7, str.tostring(cvd_slope_n, "#.##"), text_color=color.white)
+    table.cell(tbl, 0, 8, "CVD @ FORMING",            text_color=color.white)
+    table.cell(tbl, 1, 8, na(forming_cvd) ? "-" : str.tostring(forming_cvd, "#.##"),
+                          text_color=color.white)
+
+// =====================================================================
+// ALERTS — wire to webhook for setup_attempts/trades DB ingestion
+// =====================================================================
+alertcondition(forming_trigger,
+    title="Spring at VAL: 🟡 FORMING",
+    message='{"variant":"spring_at_val","state":"FORMING","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"ts":"{{time}}"}')
+
+alertcondition(confirmed_trigger and not trade_fire_trigger,
+    title="Spring at VAL: 🟠 CONFIRMED (suppressed by OF)",
+    message='{"variant":"spring_at_val","state":"CONFIRMED","suppression":"of_gate","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"ts":"{{time}}"}')
+
+alertcondition(trade_fire_trigger,
+    title="Spring at VAL: 🟢 TRADE FIRES",
+    message='{"variant":"spring_at_val","state":"TRADE_FIRED","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"direction":"long","ts":"{{time}}"}')
+
+alertcondition(invalidation_trigger,
+    title="Spring at VAL: 🔴 INVALIDATED",
+    message='{"variant":"spring_at_val","state":"INVALIDATED","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"ts":"{{time}}"}')
+
+// =====================================================================
+// END
+// =====================================================================
