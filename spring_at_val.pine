@@ -116,12 +116,12 @@ swept_below    = val_input > 0 and low < (val_input - piercing_z)
 forming_trigger = state == NONE and location_valid and swept_below
 
 // CONFIRMED criteria
-confirmed_trigger = state == FORMING and
-                    elapsed <= n_max and
-                    close > val_input and
-                    bar_range > atr_v * conf_range and
-                    volume > vol_sma * conf_vol and
-                    close_top_pct >= conf_close
+confirmed_trigger = (state == FORMING and
+                     elapsed <= n_max and
+                     close > val_input and
+                     bar_range > atr_v * conf_range and
+                     volume > vol_sma * conf_vol and
+                     close_top_pct >= conf_close)
 
 // INVALIDATED criteria
 invalidation_trigger = state == FORMING and
