@@ -288,21 +288,26 @@ if show_table and barstate.islast
 // =====================================================================
 // ALERTS — wire to webhook for setup_attempts/trades DB ingestion
 // =====================================================================
+// Plot VAL invisibly so {{plot("VAL")}} placeholder resolves in alert messages.
+// alertcondition() requires const-string messages, so dynamic values must come
+// in via TradingView placeholders rather than runtime string concatenation.
+plot(val_input, "VAL", display=display.data_window)
+
 alertcondition(forming_trigger,
     title="Spring at VAL: 🟡 FORMING",
-    message='{"variant":"spring_at_val","state":"FORMING","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"ts":"{{time}}"}')
+    message='{"variant":"spring_at_val","state":"FORMING","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":{{plot("VAL")}},"ts":"{{time}}"}')
 
 alertcondition(confirmed_trigger and not trade_fire_trigger,
     title="Spring at VAL: 🟠 CONFIRMED (suppressed by OF)",
-    message='{"variant":"spring_at_val","state":"CONFIRMED","suppression":"of_gate","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"ts":"{{time}}"}')
+    message='{"variant":"spring_at_val","state":"CONFIRMED","suppression":"of_gate","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":{{plot("VAL")}},"ts":"{{time}}"}')
 
 alertcondition(trade_fire_trigger,
     title="Spring at VAL: 🟢 TRADE FIRES",
-    message='{"variant":"spring_at_val","state":"TRADE_FIRED","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"direction":"long","ts":"{{time}}"}')
+    message='{"variant":"spring_at_val","state":"TRADE_FIRED","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":{{plot("VAL")}},"direction":"long","ts":"{{time}}"}')
 
 alertcondition(invalidation_trigger,
     title="Spring at VAL: 🔴 INVALIDATED",
-    message='{"variant":"spring_at_val","state":"INVALIDATED","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":' + str.tostring(val_input) + ',"ts":"{{time}}"}')
+    message='{"variant":"spring_at_val","state":"INVALIDATED","symbol":"{{ticker}}","tf":"{{interval}}","price":{{close}},"level":{{plot("VAL")}},"ts":"{{time}}"}')
 
 // =====================================================================
 // END
