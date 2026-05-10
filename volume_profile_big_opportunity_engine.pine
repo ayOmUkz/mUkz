@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 7 of 12 (S1/S2 failed-auction setups).
+// Build status: Step 8 of 12 (S3 rotation + S4/S5 initiative-expansion setups).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -487,7 +487,68 @@ if barstate.isconfirmed
 
 
 // ─── 8. CONTEXT METRICS ─────────────────────────────────────────────────────
-// TODO After step 6: stretch, migration, vol expansion, trap quality.
+// Helpers consumed by setups in Section 9. Composed from earlier sections
+// (zones from §5, profile metrics from §4, state from §7).
+
+// Bars-since-prior-VA-reclaim: how long has price been holding inside
+// prior VA. Resets to 0 when price closes outside VA.
+var int barsInsidePriorVA = 0
+if barstate.isconfirmed
+    insidePriorVA = not na(priorVAH) and not na(priorVAL) and close >= priorVAL and close <= priorVAH
+    if insidePriorVA
+        barsInsidePriorVA := barsInsidePriorVA + 1
+    else
+        barsInsidePriorVA := 0
+
+// Distance helpers for clean targets. Return na if no qualifying zone.
+f_nextHvnAbove(zones, price) =>
+    out = float(na)
+    bestDist = float(na)
+    for z in zones
+        if z.priceBot > price
+            d = z.priceBot - price
+            if na(bestDist) or d < bestDist
+                bestDist := d
+                out := z.priceBot
+    out
+
+f_nextHvnBelow(zones, price) =>
+    out = float(na)
+    bestDist = float(na)
+    for z in zones
+        if z.priceTop < price
+            d = price - z.priceTop
+            if na(bestDist) or d < bestDist
+                bestDist := d
+                out := z.priceTop
+    out
+
+f_nextLvnAbove(zones, price) =>
+    out = float(na)
+    bestDist = float(na)
+    for z in zones
+        if z.priceBot > price
+            d = z.priceBot - price
+            if na(bestDist) or d < bestDist
+                bestDist := d
+                out := z.priceBot
+    out
+
+f_nextLvnBelow(zones, price) =>
+    out = float(na)
+    bestDist = float(na)
+    for z in zones
+        if z.priceTop < price
+            d = price - z.priceTop
+            if na(bestDist) or d < bestDist
+                bestDist := d
+                out := z.priceTop
+    out
+
+// Convenience composites — pre-computed once per bar so Section 9 doesn't
+// repeat the lookups.
+nextHvnUpPrior   = f_nextHvnAbove(priorHvnZones, close)
+nextHvnDownPrior = f_nextHvnBelow(priorHvnZones, close)
 
 
 // ─── 9. SETUP DETECTORS ─────────────────────────────────────────────────────
@@ -523,6 +584,24 @@ isS1 = i_enableS1 and barstate.isconfirmed and reclaimedFromBelow and (recentBul
 // S2 — Failed Breakout Above VAH → SHORT (mirror of S1).
 isS2 = i_enableS2 and barstate.isconfirmed and reclaimedFromAbove and (recentBearDiv or recentAbsorpBear)
 
+// S3 — 80% Value Rotation. Session opens outside prior VA, then price
+// reclaims VA and holds inside for ≥ acceptBars. Fires on the bar that
+// CROSSES the holding threshold (not on every subsequent bar).
+crossedAcceptInside = barsInsidePriorVA == i_acceptBars
+isS3Long  = i_enableS3 and barstate.isconfirmed and crossedAcceptInside and not na(devAnchor) and not na(priorVAL) and devAnchor < priorVAL
+isS3Short = i_enableS3 and barstate.isconfirmed and crossedAcceptInside and not na(devAnchor) and not na(priorVAH) and devAnchor > priorVAH
+
+// S4 — Initiative Expansion Above VAH → LONG. Active initiative-bullish
+// regime AND a pullback test that holds: current bar dipped to priorVAH
+// (within a small buffer) and closed back above it.
+buffer = 2 * syminfo.mintick
+testingVAHFromAbove = not na(priorVAH) and low <= priorVAH + buffer and close > priorVAH
+isS4 = i_enableS4 and barstate.isconfirmed and auctionState == "Initiative Expansion" and auctionBias == "Bullish" and testingVAHFromAbove
+
+// S5 — Initiative Expansion Below VAL → SHORT (mirror of S4).
+testingVALFromBelow = not na(priorVAL) and high >= priorVAL - buffer and close < priorVAL
+isS5 = i_enableS5 and barstate.isconfirmed and auctionState == "Initiative Expansion" and auctionBias == "Bearish" and testingVALFromBelow
+
 if barstate.isconfirmed
     array.clear(activeSetups)
     if isS1
@@ -546,6 +625,42 @@ if barstate.isconfirmed
                  na,
                  math.max(high, high[1]))
         array.push(activeSetups, s2)
+    if isS3Long
+        s3l = setupT.new(
+                  "80% Value Rotation Up", "long", "80%R↑",
+                  0, "",
+                  priorPOC,
+                  priorVAH,
+                  na,
+                  priorVAL - buffer)
+        array.push(activeSetups, s3l)
+    if isS3Short
+        s3s = setupT.new(
+                  "80% Value Rotation Down", "short", "80%R↓",
+                  0, "",
+                  priorPOC,
+                  priorVAL,
+                  na,
+                  priorVAH + buffer)
+        array.push(activeSetups, s3s)
+    if isS4
+        s4 = setupT.new(
+                 "Initiative Expansion Above VAH", "long", "IE↑",
+                 0, "",
+                 nextHvnUpPrior,
+                 na,
+                 na,
+                 priorVAH - buffer)
+        array.push(activeSetups, s4)
+    if isS5
+        s5 = setupT.new(
+                 "Initiative Expansion Below VAL", "short", "IE↓",
+                 0, "",
+                 nextHvnDownPrior,
+                 na,
+                 na,
+                 priorVAL + buffer)
+        array.push(activeSetups, s5)
 
 
 // ─── 10. SCORING ────────────────────────────────────────────────────────────
