@@ -1,0 +1,170 @@
+//@version=6
+// ============================================================================
+// VP Big Opportunity Engine
+// Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
+// See BLUEPRINT.md for the full design.
+//
+// Build status: Step 1 of 12 (Inputs + session scaffolding).
+// Locked v1 decisions: Pine v6, RTH default with ETH toggle,
+// ta.requestVolumeDelta as sole CVD source, single combined indicator.
+// ============================================================================
+indicator("VP Big Opportunity Engine", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+
+
+// ─── 1. INPUTS ──────────────────────────────────────────────────────────────
+
+// Group 1: Session
+g_session = "Session"
+i_rthSession    = input.session("0930-1600", "RTH session",                                   group=g_session, tooltip="Default ES/NQ regular hours.")
+i_useEth        = input.bool(false,          "Use ETH (24h) instead of RTH",                  group=g_session, tooltip="ETH treats the entire day as one profile period (anchored at chart-day rollover).")
+i_timezone      = input.string("America/New_York", "Session timezone",                        group=g_session)
+i_priorSessions = input.int(1, "Prior sessions to render (max 5)", minval=1, maxval=5,        group=g_session)
+
+// Group 2: Profile resolution
+g_profile = "Profile resolution"
+i_rowMode    = input.string("Auto by ATR", "Row size mode", options=["Auto by ATR", "Ticks", "Points"], group=g_profile)
+i_rowTicks   = input.int(4,    "Row size (ticks) — Ticks mode",     minval=1,             group=g_profile)
+i_rowPoints  = input.float(0.25, "Row size (points) — Points mode", minval=0.01, step=0.01, group=g_profile)
+i_atrMult    = input.float(0.10, "Auto row = ATR(14) ×",            minval=0.01, step=0.01, group=g_profile)
+i_vaPct      = input.float(70.0, "Value Area %",                    minval=50.0, maxval=95.0, step=1.0, group=g_profile)
+i_ltfMinutes = input.int(1,      "Lower-TF minutes for volume-by-price", minval=1, maxval=60, group=g_profile, tooltip="Used by step 2 for LTF aggregation.")
+
+// Group 3: HVN / LVN
+g_nodes = "HVN / LVN"
+i_hvnMult     = input.float(1.5, "HVN threshold (× median bin)", minval=1.0,             step=0.1,  group=g_nodes)
+i_lvnMult     = input.float(0.4, "LVN threshold (× median bin)", minval=0.05, maxval=1.0, step=0.05, group=g_nodes)
+i_lvnMinTicks = input.int(2,     "Min LVN run width (ticks)",    minval=1,                          group=g_nodes)
+
+// Group 4: Order flow
+g_flow = "Order flow"
+i_cvdLookback     = input.int(20,   "CVD divergence lookback (bars)",                       minval=5, group=g_flow)
+i_absorptionMult  = input.float(2.0, "Absorption: |delta| ≥ this × stdev with stalled range", minval=1.0, step=0.1, group=g_flow)
+
+// Group 5: Detection sensitivity
+g_detect = "Detection sensitivity"
+i_minOutBars            = input.int(3,   "Min bars outside VA = breakout",                     minval=1, group=g_detect)
+i_acceptBars            = input.int(5,   "Min bars holding outside VA = acceptance",           minval=2, group=g_detect)
+i_pocMigrationTicks     = input.int(4,   "POC migration threshold (ticks across lookback)",    minval=1, group=g_detect)
+i_pocMigrationLookback  = input.int(10,  "POC migration lookback (bars)",                      minval=2, group=g_detect)
+i_stretchAtr            = input.float(2.5, "POC magnet stretch (ATR multiples)", minval=0.5, step=0.1, group=g_detect)
+
+// Group 6: Scoring weights & grade cutoffs
+g_score = "Scoring & grades"
+i_wLocation   = input.int(25, "Weight: Location alignment",        minval=0, maxval=100, group=g_score)
+i_wTrap       = input.int(25, "Weight: Trap quality",              minval=0, maxval=100, group=g_score)
+i_wQuality    = input.int(20, "Weight: Acceptance/rejection quality", minval=0, maxval=100, group=g_score)
+i_wFlow       = input.int(20, "Weight: Order flow confirmation",   minval=0, maxval=100, group=g_score)
+i_wTarget     = input.int(10, "Weight: Target clarity",            minval=0, maxval=100, group=g_score)
+i_gradeAplus  = input.int(85, "A+ grade cutoff",                   minval=0, maxval=100, group=g_score)
+i_gradeA      = input.int(70, "A grade cutoff",                    minval=0, maxval=100, group=g_score)
+i_gradeB      = input.int(55, "B grade cutoff",                    minval=0, maxval=100, group=g_score)
+
+// Group 7: Visuals
+g_visual = "Visuals"
+i_showProfile     = input.bool(true,  "Show profile lines (POC/VAH/VAL)",     group=g_visual)
+i_showNodes       = input.bool(true,  "Show HVN/LVN bands",                   group=g_visual)
+i_showRegimeBg    = input.bool(true,  "Tint background by auction state",     group=g_visual)
+i_showDashboard   = input.bool(true,  "Show dashboard table",                 group=g_visual)
+i_dashboardPos    = input.string("top_right", "Dashboard position", options=["top_right","top_left","middle_right","middle_left","bottom_right","bottom_left"], group=g_visual)
+i_showSessionDbg  = input.bool(true,  "Step 1 debug: show session markers + tint", group=g_visual, tooltip="Verifies session detection. Will be removed once auction-state regime tint takes over.")
+
+// Group 7b: Setup toggles
+g_toggles = "Setup toggles"
+i_enableS1 = input.bool(true, "S1: Failed Breakdown Below VAL (long)", group=g_toggles)
+i_enableS2 = input.bool(true, "S2: Failed Breakout Above VAH (short)", group=g_toggles)
+i_enableS3 = input.bool(true, "S3: 80% Value Rotation",                group=g_toggles)
+i_enableS4 = input.bool(true, "S4: Initiative Expansion ↑",            group=g_toggles)
+i_enableS5 = input.bool(true, "S5: Initiative Expansion ↓",            group=g_toggles)
+i_enableS6 = input.bool(true, "S6: LVN Air Pocket Move",               group=g_toggles)
+i_enableS7 = input.bool(true, "S7: POC Magnet Inventory Unwind",       group=g_toggles)
+
+
+// ─── 2. SESSION ─────────────────────────────────────────────────────────────
+
+// inSessionRTH is true on bars whose time falls inside the user-defined RTH window.
+// time(tf, session, tz) returns na outside the session.
+inSessionRTH = not na(time(timeframe.period, i_rthSession, i_timezone))
+
+// In ETH mode, every bar is treated as in-session; profile periods anchor on
+// the chart-day rollover instead of the RTH window.
+inSession = i_useEth ? true : inSessionRTH
+
+// newAnchor marks the first bar of a new profile period:
+//   RTH: first bar entering the RTH window.
+//   ETH: first bar of a new chart-day (limitation: not the CME 17:00 ET reset; v2 candidate).
+isNewDay  = ta.change(time("1D")) != 0
+newAnchor = i_useEth ? isNewDay : (inSessionRTH and not inSessionRTH[1])
+
+// barsSinceAnchor — diagnostic + used by future steps for min-history gates.
+var int barsSinceAnchor = 0
+if newAnchor
+    barsSinceAnchor := 1
+else if inSession
+    barsSinceAnchor += 1
+else
+    barsSinceAnchor := 0
+
+// Bars-elapsed counter inside the active session period.
+// Read this AFTER newAnchor to know if we have enough data to compute a profile.
+sessionStartEvent = newAnchor
+sessionEndEvent   = not i_useEth and (not inSessionRTH and inSessionRTH[1])
+
+// Computed row size in price units. Centralized so every downstream step uses
+// the same grid. Auto mode adapts to instrument volatility via ATR.
+atrVal = ta.atr(14)
+f_rowSize() =>
+    switch i_rowMode
+        "Ticks"  => i_rowTicks  * syminfo.mintick
+        "Points" => i_rowPoints
+        => atrVal * i_atrMult
+rowSize = f_rowSize()
+
+
+// ─── 3. VOLUME-BY-PRICE ─────────────────────────────────────────────────────
+// TODO Step 2: LTF aggregation via request.security_lower_tf, bin arrays.
+
+
+// ─── 4. PROFILE METRICS ─────────────────────────────────────────────────────
+// TODO Step 3: POC, VAH, VAL for prior + developing sessions.
+
+
+// ─── 5. HVN / LVN ───────────────────────────────────────────────────────────
+// TODO Step 4: Node detection + clustering.
+
+
+// ─── 6. ORDER FLOW ──────────────────────────────────────────────────────────
+// TODO Step 5: ta.requestVolumeDelta, divergence, absorption.
+
+
+// ─── 7. AUCTION STATE MACHINE ───────────────────────────────────────────────
+// TODO Step 6: Balance / Failed / Initiative / Repair classification.
+
+
+// ─── 8. CONTEXT METRICS ─────────────────────────────────────────────────────
+// TODO After step 6: stretch, migration, vol expansion, trap quality.
+
+
+// ─── 9. SETUP DETECTORS ─────────────────────────────────────────────────────
+// TODO Steps 7–9: S1..S7.
+
+
+// ─── 10. SCORING ────────────────────────────────────────────────────────────
+// TODO Step 10: per-component scorers + grader.
+
+
+// ─── 11. RENDER ─────────────────────────────────────────────────────────────
+
+// Step 1 sanity render — proves session detection works. Replaced once
+// regime tint and profile lines arrive in later steps.
+plotchar(i_showSessionDbg and sessionStartEvent and barstate.isconfirmed, "Anchor start", "▲", location.bottom, color=color.new(color.green, 0), size=size.tiny)
+plotchar(i_showSessionDbg and sessionEndEvent   and barstate.isconfirmed, "Anchor end",   "▼", location.top,    color=color.new(color.red,   0), size=size.tiny)
+bgcolor(i_showSessionDbg and inSession ? color.new(color.blue, 95) : na, title="In-session tint (debug)")
+
+// Diagnostic plot for the row-size calculation. Lives on a separate pane so
+// it doesn't clutter the chart; remove once Step 2 consumes it.
+plot(rowSize, "Row size (price)", color=color.new(color.gray, 60), display=display.data_window)
+plot(barsSinceAnchor, "Bars since anchor", color=color.new(color.gray, 60), display=display.data_window)
+
+
+// ─── 12. ALERTS ─────────────────────────────────────────────────────────────
+// TODO Step 12: alertcondition + alert() payloads.
