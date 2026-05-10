@@ -1,7 +1,39 @@
-// Hardcoded sample matching the Python classifier output for an ATM long call.
-// Replaces real fetch in the vertical slice; wire /classify in the next iteration.
+// Hardcoded sample for offline / Python-service-down fallback.
+// SAMPLE_POSITION is also the payload sent to /classify for the V1 demo.
 
-import type { Classification, ForceScores } from "./types";
+import type {
+  Classification,
+  EnrichedPosition,
+  ForceScores,
+} from "./types";
+
+export const SAMPLE_POSITION: EnrichedPosition = {
+  position: {
+    ticker: "SPY",
+    expiration: "2025-12-19",
+    strike: 480.0,
+    option_type: "call",
+    side: "long",
+    qty: 5,
+    entry_price: 8.5,
+  },
+  context: {
+    underlying_price: 480.0,
+    dte: 30,
+    multiplier: 100,
+    bid: 8.4,
+    ask: 8.6,
+    mid: 8.5,
+    iv: 0.25,
+    iv_rank: 50,
+    delta: 0.5,
+    gamma: 0.03,
+    theta: -0.15,
+    vega: 0.4,
+    open_interest: 10000,
+    volume: 5000,
+  },
+};
 
 export const MOCK_FORCE_SCORES: ForceScores = {
   delta: { magnitude: 1.0, sign: "+" },
