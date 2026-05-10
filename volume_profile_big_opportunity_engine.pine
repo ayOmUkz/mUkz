@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 1 of 12 (Inputs + session scaffolding).
+// Build status: Step 2 of 12 (LTF volume aggregation + histogram render).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -27,7 +27,8 @@ i_rowTicks   = input.int(4,    "Row size (ticks) — Ticks mode",     minval=1, 
 i_rowPoints  = input.float(0.25, "Row size (points) — Points mode", minval=0.01, step=0.01, group=g_profile)
 i_atrMult    = input.float(0.10, "Auto row = ATR(14) ×",            minval=0.01, step=0.01, group=g_profile)
 i_vaPct      = input.float(70.0, "Value Area %",                    minval=50.0, maxval=95.0, step=1.0, group=g_profile)
-i_ltfMinutes = input.int(1,      "Lower-TF minutes for volume-by-price", minval=1, maxval=60, group=g_profile, tooltip="Used by step 2 for LTF aggregation.")
+i_ltfMinutes = input.int(1,      "Lower-TF minutes for volume-by-price", minval=1, maxval=60, group=g_profile, tooltip="If chart TF ≤ this, the script falls back to current-bar volume distribution.")
+i_histogramBars = input.int(30,  "Histogram width (bars)",  minval=5, maxval=200, group=g_profile, tooltip="Visual width of the developing-profile histogram (Step 2 sanity render).")
 
 // Group 3: HVN / LVN
 g_nodes = "HVN / LVN"
@@ -67,6 +68,7 @@ i_showRegimeBg    = input.bool(true,  "Tint background by auction state",     gr
 i_showDashboard   = input.bool(true,  "Show dashboard table",                 group=g_visual)
 i_dashboardPos    = input.string("top_right", "Dashboard position", options=["top_right","top_left","middle_right","middle_left","bottom_right","bottom_left"], group=g_visual)
 i_showSessionDbg  = input.bool(true,  "Step 1 debug: show session markers + tint", group=g_visual, tooltip="Verifies session detection. Will be removed once auction-state regime tint takes over.")
+i_showDevHistogram = input.bool(true, "Step 2 debug: show developing profile histogram", group=g_visual, tooltip="Sideways histogram of the developing-session volume profile. Sanity-check vs TradingView's built-in VP.")
 
 // Group 7b: Setup toggles
 g_toggles = "Setup toggles"
@@ -121,7 +123,98 @@ rowSize = f_rowSize()
 
 
 // ─── 3. VOLUME-BY-PRICE ─────────────────────────────────────────────────────
-// TODO Step 2: LTF aggregation via request.security_lower_tf, bin arrays.
+// Aggregates volume into a session-anchored bin grid using lower-timeframe
+// (LTF) bars. Each LTF bar's volume is distributed pro-rata across the price
+// bins it spans. Two maps are maintained: developing (live) and prior
+// (snapshotted on newAnchor). Map key = integer bin index; value = volume.
+
+// LTF bar UDT — collects what we need from each LTF bar in one fetch.
+type ltfBarT
+    float lo
+    float hi
+    float vol
+
+f_mkLtfBar() => ltfBarT.new(low, high, volume)
+
+// Decide whether the requested LTF is actually lower than the chart TF.
+// If not (e.g., 1m chart with i_ltfMinutes=1), we fall back to the chart bar
+// itself as a single "LTF bar". This keeps the indicator usable on tiny TFs.
+chartSeconds = timeframe.in_seconds()
+ltfSeconds   = i_ltfMinutes * 60
+ltfActive    = ltfSeconds < chartSeconds
+
+ltfBarsRaw = ltfActive
+   ? request.security_lower_tf(syminfo.tickerid, str.tostring(i_ltfMinutes), f_mkLtfBar())
+   : array.new<ltfBarT>()
+
+// Bin helpers — parameterized so dev and prior profiles can each carry their
+// own (anchor, rowSize). This matters because rowSize can drift across
+// sessions when in Auto-by-ATR mode.
+f_binIdx(p, anchor, rs)      => rs > 0 and not na(anchor) ? int(math.floor((p - anchor) / rs)) : int(na)
+f_binBottom(idx, anchor, rs) => anchor + idx * rs
+f_binTop(idx, anchor, rs)    => anchor + (idx + 1) * rs
+
+f_addVolToBin(m, idx, v) =>
+    if not na(idx) and v > 0
+        cur = m.get(idx)
+        m.put(idx, (na(cur) ? 0.0 : cur) + v)
+
+// Distribute one LTF bar's volume across overlapping bins (linear pro-rata).
+// Zero-range bars (lo == hi) drop the full volume into the single covering bin.
+f_distributeLtfBar(m, b, anchor, rs) =>
+    if b.vol > 0 and not na(anchor) and rs > 0
+        if b.hi == b.lo
+            f_addVolToBin(m, f_binIdx(b.lo, anchor, rs), b.vol)
+        else
+            range = b.hi - b.lo
+            loIdx = f_binIdx(b.lo, anchor, rs)
+            hiIdx = f_binIdx(b.hi, anchor, rs)
+            if not na(loIdx) and not na(hiIdx)
+                for i = loIdx to hiIdx
+                    binBot = f_binBottom(i, anchor, rs)
+                    binTop = f_binTop(i, anchor, rs)
+                    overlap = math.min(b.hi, binTop) - math.max(b.lo, binBot)
+                    if overlap > 0
+                        f_addVolToBin(m, i, b.vol * (overlap / range))
+
+// Per-profile state. Anchor + rowSize are locked at session start so the
+// keys remain meaningful for the lifetime of the profile.
+var map<int, float> devVolMap    = map.new<int, float>()
+var map<int, float> priorVolMap  = map.new<int, float>()
+var float           devAnchor    = na
+var float           priorAnchor  = na
+var float           devRowSize   = na
+var float           priorRowSize = na
+
+// Snapshot dev → prior on newAnchor, then reset dev with current open + rowSize.
+// Done BEFORE aggregating this bar so the fresh anchor is valid for it.
+if newAnchor and barstate.isconfirmed
+    priorVolMap.clear()
+    devKeys = devVolMap.keys()
+    for k in devKeys
+        priorVolMap.put(k, devVolMap.get(k))
+    priorAnchor  := devAnchor
+    priorRowSize := devRowSize
+    devVolMap.clear()
+    devAnchor    := open
+    devRowSize   := rowSize
+
+// Aggregate this bar's LTF volumes into developing. Confirmed-only to prevent
+// intra-bar double counting on the live bar.
+if barstate.isconfirmed and inSession and not na(devAnchor)
+    if ltfActive
+        for b in ltfBarsRaw
+            f_distributeLtfBar(devVolMap, b, devAnchor, devRowSize)
+    else
+        f_distributeLtfBar(devVolMap, ltfBarT.new(low, high, volume), devAnchor, devRowSize)
+
+// Diagnostic: total developing-session volume (used by data window).
+var float devTotalVol = 0.0
+if barstate.isconfirmed
+    devTotalVol := 0.0
+    devKeys2 = devVolMap.keys()
+    for k in devKeys2
+        devTotalVol += devVolMap.get(k)
 
 
 // ─── 4. PROFILE METRICS ─────────────────────────────────────────────────────
@@ -160,10 +253,40 @@ plotchar(i_showSessionDbg and sessionStartEvent and barstate.isconfirmed, "Ancho
 plotchar(i_showSessionDbg and sessionEndEvent   and barstate.isconfirmed, "Anchor end",   "▼", location.top,    color=color.new(color.red,   0), size=size.tiny)
 bgcolor(i_showSessionDbg and inSession ? color.new(color.blue, 95) : na, title="In-session tint (debug)")
 
-// Diagnostic plot for the row-size calculation. Lives on a separate pane so
-// it doesn't clutter the chart; remove once Step 2 consumes it.
-plot(rowSize, "Row size (price)", color=color.new(color.gray, 60), display=display.data_window)
-plot(barsSinceAnchor, "Bars since anchor", color=color.new(color.gray, 60), display=display.data_window)
+// Diagnostic plots — visible only in the Data Window.
+plot(rowSize,          "Row size (price)",          color=color.new(color.gray, 60), display=display.data_window)
+plot(barsSinceAnchor,  "Bars since anchor",         color=color.new(color.gray, 60), display=display.data_window)
+plot(devTotalVol,      "Dev session total volume",  color=color.new(color.gray, 60), display=display.data_window)
+plot(ltfActive ? 1 : 0,"LTF active (1=yes, 0=fallback)", color=color.new(color.gray, 60), display=display.data_window)
+
+// Step 2 sanity render — sideways histogram of the developing volume profile.
+// Boxes are recycled each confirmed bar to stay well under the 500-box cap.
+var array<box> devHistoBoxes = array.new<box>()
+
+f_clearBoxes(arr) =>
+    for b in arr
+        box.delete(b)
+    array.clear(arr)
+
+if barstate.isconfirmed
+    f_clearBoxes(devHistoBoxes)
+    if i_showDevHistogram and not na(devAnchor)
+        keys = devVolMap.keys()
+        if array.size(keys) > 0
+            maxV = 0.0
+            for k in keys
+                v = devVolMap.get(k)
+                if v > maxV
+                    maxV := v
+            if maxV > 0
+                for k in keys
+                    v = devVolMap.get(k)
+                    w = int((v / maxV) * i_histogramBars)
+                    if w >= 1
+                        binBot = f_binBottom(k, devAnchor, devRowSize)
+                        binTop = f_binTop(k, devAnchor, devRowSize)
+                        b = box.new(bar_index - w, binTop, bar_index, binBot, border_color=na, bgcolor=color.new(color.aqua, 70))
+                        array.push(devHistoBoxes, b)
 
 
 // ─── 12. ALERTS ─────────────────────────────────────────────────────────────
