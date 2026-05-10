@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 2 of 12 (LTF volume aggregation + histogram render).
+// Build status: Step 3 of 12 (POC / VAH / VAL for developing + prior profiles).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -218,7 +218,64 @@ if barstate.isconfirmed
 
 
 // ─── 4. PROFILE METRICS ─────────────────────────────────────────────────────
-// TODO Step 3: POC, VAH, VAL for prior + developing sessions.
+// Builds POC / VAH / VAL from a bin map. Pure: depends only on its inputs.
+// VA expansion: starting from POC, repeatedly add the larger-volume neighbor
+// (above or below the accepted range) until cumulative volume ≥ vaPct% of
+// total. Ties favor the upper bin (a common Market Profile convention).
+
+f_buildProfile(m, anchor, rs, vaPct) =>
+    pocFinal = float(na)
+    vahFinal = float(na)
+    valFinal = float(na)
+    keys = m.keys()
+    n = array.size(keys)
+    if n > 0 and not na(anchor) and rs > 0
+        // Pass 1: total volume, POC bin, and observed key range.
+        total  = 0.0
+        maxV   = 0.0
+        pocIdx = int(na)
+        minIdx = int(na)
+        maxIdx = int(na)
+        for k in keys
+            v = m.get(k)
+            total += v
+            if v > maxV
+                maxV   := v
+                pocIdx := k
+            if na(minIdx) or k < minIdx
+                minIdx := k
+            if na(maxIdx) or k > maxIdx
+                maxIdx := k
+        if not na(pocIdx) and total > 0
+            // Pass 2: expand value area outward from POC.
+            target      = total * (vaPct / 100.0)
+            accumulated = maxV
+            topIdx      = pocIdx
+            botIdx      = pocIdx
+            while accumulated < target and (topIdx < maxIdx or botIdx > minIdx)
+                aboveIdx = topIdx + 1
+                belowIdx = botIdx - 1
+                aboveRaw = aboveIdx <= maxIdx ? m.get(aboveIdx) : na
+                belowRaw = belowIdx >= minIdx ? m.get(belowIdx) : na
+                aboveVol = aboveIdx <= maxIdx ? (na(aboveRaw) ? 0.0 : aboveRaw) : -1.0
+                belowVol = belowIdx >= minIdx ? (na(belowRaw) ? 0.0 : belowRaw) : -1.0
+                if aboveVol < 0 and belowVol < 0
+                    break
+                if aboveVol >= belowVol
+                    topIdx := aboveIdx
+                    if aboveVol > 0
+                        accumulated += aboveVol
+                else
+                    botIdx := belowIdx
+                    if belowVol > 0
+                        accumulated += belowVol
+            pocFinal := f_binBottom(pocIdx, anchor, rs) + rs / 2.0
+            vahFinal := f_binTop(topIdx, anchor, rs)
+            valFinal := f_binBottom(botIdx, anchor, rs)
+    [pocFinal, vahFinal, valFinal]
+
+[devPOC,   devVAH,   devVAL]   = f_buildProfile(devVolMap,   devAnchor,   devRowSize,   i_vaPct)
+[priorPOC, priorVAH, priorVAL] = f_buildProfile(priorVolMap, priorAnchor, priorRowSize, i_vaPct)
 
 
 // ─── 5. HVN / LVN ───────────────────────────────────────────────────────────
@@ -258,6 +315,15 @@ plot(rowSize,          "Row size (price)",          color=color.new(color.gray, 
 plot(barsSinceAnchor,  "Bars since anchor",         color=color.new(color.gray, 60), display=display.data_window)
 plot(devTotalVol,      "Dev session total volume",  color=color.new(color.gray, 60), display=display.data_window)
 plot(ltfActive ? 1 : 0,"LTF active (1=yes, 0=fallback)", color=color.new(color.gray, 60), display=display.data_window)
+
+// Profile lines. Prior values are solid + bold (frozen levels), developing
+// values are translucent (live).
+plot(i_showProfile ? priorPOC : na, "pPOC", color=color.new(color.orange,  0), style=plot.style_linebr, linewidth=2)
+plot(i_showProfile ? priorVAH : na, "pVAH", color=color.new(color.teal,    0), style=plot.style_linebr, linewidth=2)
+plot(i_showProfile ? priorVAL : na, "pVAL", color=color.new(color.teal,    0), style=plot.style_linebr, linewidth=2)
+plot(i_showProfile ? devPOC   : na, "dPOC", color=color.new(color.orange, 50), style=plot.style_linebr, linewidth=1)
+plot(i_showProfile ? devVAH   : na, "dVAH", color=color.new(color.teal,   50), style=plot.style_linebr, linewidth=1)
+plot(i_showProfile ? devVAL   : na, "dVAL", color=color.new(color.teal,   50), style=plot.style_linebr, linewidth=1)
 
 // Step 2 sanity render — sideways histogram of the developing volume profile.
 // Boxes are recycled each confirmed bar to stay well under the 500-box cap.
