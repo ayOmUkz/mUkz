@@ -129,24 +129,25 @@ rowSize = f_rowSize()
 // bins it spans. Two maps are maintained: developing (live) and prior
 // (snapshotted on newAnchor). Map key = integer bin index; value = volume.
 
-// LTF bar UDT — collects what we need from each LTF bar in one fetch.
+// LTF bar UDT — collects everything we need from each LTF bar in one fetch
+// (low/high/volume drive the profile; isUp/isDown drive the delta).
 type ltfBarT
     float lo
     float hi
     float vol
+    bool  isUp
+    bool  isDown
 
-f_mkLtfBar() => ltfBarT.new(low, high, volume)
+f_mkLtfBar() => ltfBarT.new(low, high, volume, close > open, close < open)
 
-// Decide whether the requested LTF is actually lower than the chart TF.
-// If not (e.g., 1m chart with i_ltfMinutes=1), we fall back to the chart bar
-// itself as a single "LTF bar". This keeps the indicator usable on tiny TFs.
-chartSeconds = timeframe.in_seconds()
-ltfSeconds   = i_ltfMinutes * 60
-ltfActive    = ltfSeconds < chartSeconds
-
-ltfBarsRaw = ltfActive
-   ? request.security_lower_tf(syminfo.tickerid, str.tostring(i_ltfMinutes), f_mkLtfBar())
-   : array.new<ltfBarT>()
+// LTF must be strictly lower than chart TF or the request errors. Cap to
+// (chartMinutes - 1) on minute charts; fall back to "1S" on 1m or smaller
+// charts. The call is unconditional and at the top level (Pine constraint).
+chartSeconds   = timeframe.in_seconds()
+maxLtfMinsSafe = math.max(1, int(chartSeconds / 60.0) - 1)
+ltfRequestStr  = chartSeconds > 60 ? str.tostring(math.min(i_ltfMinutes, maxLtfMinsSafe)) : "1S"
+ltfBarsRaw     = request.security_lower_tf(syminfo.tickerid, ltfRequestStr, f_mkLtfBar())
+ltfActive      = array.size(ltfBarsRaw) > 0
 
 // Bin helpers — parameterized so dev and prior profiles can each carry their
 // own (anchor, rowSize). This matters because rowSize can drift across
@@ -211,7 +212,7 @@ if barstate.isconfirmed and inSession and not na(devAnchor)
         for b in ltfBarsRaw
             f_distributeLtfBar(devVolMap, b, devAnchor, devRowSize)
     else
-        f_distributeLtfBar(devVolMap, ltfBarT.new(low, high, volume), devAnchor, devRowSize)
+        f_distributeLtfBar(devVolMap, ltfBarT.new(low, high, volume, close > open, close < open), devAnchor, devRowSize)
 
 // Diagnostic: total developing-session volume (used by data window).
 var float devTotalVol = 0.0
@@ -375,17 +376,26 @@ f_findNodes(m, anchor, rs, hvnMult, lvnMult, lvnMinPrice) =>
 
 
 // ─── 6. ORDER FLOW ──────────────────────────────────────────────────────────
-// Native ta.requestVolumeDelta gives buy-vs-sell volume per chart bar,
-// computed from a lower TF. We cumulate it into a session-anchored CVD
-// (reset on newAnchor), then derive slope, divergence vs price, and an
-// absorption flag (large delta with stalled range).
+// Per-chart-bar delta is computed from the LTF bars we already fetched in
+// Section 3 (up-volume minus down-volume across the sub-bars). We cumulate
+// it into a session-anchored CVD (reset on newAnchor), then derive slope,
+// divergence vs price, and an absorption flag (large delta with stalled range).
+//
+// Note: TradingView's `ta.requestVolumeDelta` would provide the same logical
+// metric — but its v6 signature is finicky and we already have the LTF data,
+// so we compute delta locally to keep one source of truth.
 
-// LTF for the delta request must be strictly lower than the chart TF.
-// Cap to (chartMinutes - 1) on minute charts; fall back to "1S" on a
-// chart of 1m or smaller.
-maxDeltaLtfMins = math.max(1, int(chartSeconds / 60.0) - 1)
-deltaLtfStr     = chartSeconds > 60 ? str.tostring(math.min(i_ltfMinutes, maxDeltaLtfMins)) : "1S"
-barDelta        = ta.requestVolumeDelta(deltaLtfStr)
+barDelta = 0.0
+if array.size(ltfBarsRaw) > 0
+    for b in ltfBarsRaw
+        if b.isUp
+            barDelta := barDelta + b.vol
+        else if b.isDown
+            barDelta := barDelta - b.vol
+else
+    // Fallback when LTF data isn't available (premium TV plans / sub-minute
+    // charts on free plans): infer from the chart bar's direction.
+    barDelta := close > open ? volume : close < open ? -volume : 0.0
 
 // Session-anchored CVD. Reset to 0 on newAnchor so the running sum reflects
 // the current session only. Confirmed-only to prevent intra-bar drift.
