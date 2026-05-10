@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 4 of 12 (HVN / LVN clustering + visual bands).
+// Build status: Step 5 of 12 (CVD via ta.requestVolumeDelta + divergence + absorption).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -69,6 +69,7 @@ i_showDashboard   = input.bool(true,  "Show dashboard table",                 gr
 i_dashboardPos    = input.string("top_right", "Dashboard position", options=["top_right","top_left","middle_right","middle_left","bottom_right","bottom_left"], group=g_visual)
 i_showSessionDbg  = input.bool(true,  "Step 1 debug: show session markers + tint", group=g_visual, tooltip="Verifies session detection. Will be removed once auction-state regime tint takes over.")
 i_showDevHistogram = input.bool(true, "Step 2 debug: show developing profile histogram", group=g_visual, tooltip="Sideways histogram of the developing-session volume profile. Sanity-check vs TradingView's built-in VP.")
+i_showFlowDbg     = input.bool(true,  "Step 5 debug: show CVD divergence + absorption markers", group=g_visual)
 
 // Group 7b: Setup toggles
 g_toggles = "Setup toggles"
@@ -374,7 +375,55 @@ f_findNodes(m, anchor, rs, hvnMult, lvnMult, lvnMinPrice) =>
 
 
 // ─── 6. ORDER FLOW ──────────────────────────────────────────────────────────
-// TODO Step 5: ta.requestVolumeDelta, divergence, absorption.
+// Native ta.requestVolumeDelta gives buy-vs-sell volume per chart bar,
+// computed from a lower TF. We cumulate it into a session-anchored CVD
+// (reset on newAnchor), then derive slope, divergence vs price, and an
+// absorption flag (large delta with stalled range).
+
+// LTF for the delta request must be strictly lower than the chart TF.
+// Cap to (chartMinutes - 1) on minute charts; fall back to "1S" on a
+// chart of 1m or smaller.
+maxDeltaLtfMins = math.max(1, int(chartSeconds / 60.0) - 1)
+deltaLtfStr     = chartSeconds > 60 ? str.tostring(math.min(i_ltfMinutes, maxDeltaLtfMins)) : "1S"
+barDelta        = ta.requestVolumeDelta(deltaLtfStr)
+
+// Session-anchored CVD. Reset to 0 on newAnchor so the running sum reflects
+// the current session only. Confirmed-only to prevent intra-bar drift.
+var float sessionCvd = 0.0
+if newAnchor and barstate.isconfirmed
+    sessionCvd := 0.0
+if inSession and barstate.isconfirmed and not na(barDelta)
+    sessionCvd += barDelta
+
+// CVD slope over the configured lookback. Positive → buyer pressure
+// building; negative → seller pressure building.
+cvdSlope = sessionCvd - sessionCvd[i_cvdLookback]
+
+// Divergence detection. Compares the highest/lowest in the most recent
+// lookback window against the same metric in the prior lookback window.
+// Bear: price made a higher high but CVD did not.
+// Bull: price made a lower low but CVD did not.
+priceMaxNow  = ta.highest(high, i_cvdLookback)
+priceMaxPrev = ta.highest(high, i_cvdLookback)[i_cvdLookback]
+cvdMaxNow    = ta.highest(sessionCvd, i_cvdLookback)
+cvdMaxPrev   = ta.highest(sessionCvd, i_cvdLookback)[i_cvdLookback]
+priceMinNow  = ta.lowest(low, i_cvdLookback)
+priceMinPrev = ta.lowest(low, i_cvdLookback)[i_cvdLookback]
+cvdMinNow    = ta.lowest(sessionCvd, i_cvdLookback)
+cvdMinPrev   = ta.lowest(sessionCvd, i_cvdLookback)[i_cvdLookback]
+
+bearDivergence = barstate.isconfirmed and priceMaxNow > priceMaxPrev and cvdMaxNow < cvdMaxPrev
+bullDivergence = barstate.isconfirmed and priceMinNow < priceMinPrev and cvdMinNow > cvdMinPrev
+
+// Absorption: large |delta| paired with a stalled bar range. Direction
+// follows the sign of the absorbed delta (positive delta absorbed means
+// sellers absorbed the buying → bearish, and vice versa).
+deltaStdev      = ta.stdev(barDelta, 50)
+absorptionThres = i_absorptionMult * deltaStdev
+typicalRange    = ta.atr(14)
+isAbsorption    = barstate.isconfirmed and not na(deltaStdev) and deltaStdev > 0 and math.abs(barDelta) >= absorptionThres and (high - low) < typicalRange * 0.5
+absorptionBull  = isAbsorption and barDelta < 0
+absorptionBear  = isAbsorption and barDelta > 0
 
 
 // ─── 7. AUCTION STATE MACHINE ───────────────────────────────────────────────
@@ -406,6 +455,16 @@ plot(rowSize,          "Row size (price)",          color=color.new(color.gray, 
 plot(barsSinceAnchor,  "Bars since anchor",         color=color.new(color.gray, 60), display=display.data_window)
 plot(devTotalVol,      "Dev session total volume",  color=color.new(color.gray, 60), display=display.data_window)
 plot(ltfActive ? 1 : 0,"LTF active (1=yes, 0=fallback)", color=color.new(color.gray, 60), display=display.data_window)
+plot(barDelta,         "Bar delta",                 color=color.new(color.gray, 60), display=display.data_window)
+plot(sessionCvd,       "Session CVD",               color=color.new(color.gray, 60), display=display.data_window)
+plot(cvdSlope,         "CVD slope (lookback)",      color=color.new(color.gray, 60), display=display.data_window)
+
+// Step 5 sanity markers — divergence + absorption events. Will be folded
+// into the dashboard table once Step 11 lands.
+plotchar(i_showFlowDbg and bullDivergence, "Bull div",       "ᵇ", location.belowbar, color=color.new(color.lime,   0), size=size.tiny)
+plotchar(i_showFlowDbg and bearDivergence, "Bear div",       "ᵇ", location.abovebar, color=color.new(color.red,    0), size=size.tiny)
+plotchar(i_showFlowDbg and absorptionBull, "Absorption bull","ᵃ", location.belowbar, color=color.new(color.lime,   0), size=size.small)
+plotchar(i_showFlowDbg and absorptionBear, "Absorption bear","ᵃ", location.abovebar, color=color.new(color.red,    0), size=size.small)
 
 // Profile lines. Prior values are solid + bold (frozen levels), developing
 // values are translucent (live).
