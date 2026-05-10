@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 6 of 12 (auction state machine + regime tint).
+// Build status: Step 7 of 12 (S1/S2 failed-auction setups).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -491,7 +491,61 @@ if barstate.isconfirmed
 
 
 // ─── 9. SETUP DETECTORS ─────────────────────────────────────────────────────
-// TODO Steps 7–9: S1..S7.
+// Each setup outputs a setupT pushed onto activeSetups. Score/grade are
+// filled in Step 10. Setups are detected per-confirmed-bar; the trigger
+// bar is the bar that satisfies all conditions.
+
+type setupT
+    string name
+    string side
+    string code         // short code for chart label (e.g., "FB-VAL", "FB-VAH")
+    int    score
+    string grade
+    float  target1
+    float  target2
+    float  target3
+    float  invalidPrice
+
+var array<setupT> activeSetups = array.new<setupT>()
+
+// Did a divergence or absorption fire within the last `acceptBars` bars?
+recentBullDiv      = nz(ta.barssince(bullDivergence),  99999) <= i_acceptBars
+recentBearDiv      = nz(ta.barssince(bearDivergence),  99999) <= i_acceptBars
+recentAbsorpBull   = nz(ta.barssince(absorptionBull),  99999) <= i_acceptBars
+recentAbsorpBear   = nz(ta.barssince(absorptionBear),  99999) <= i_acceptBars
+
+// S1 — Failed Breakdown Below VAL → LONG
+// Trigger: previous bar(s) closed below priorVAL, current bar reclaims
+// inside VA, and order-flow shows seller exhaustion (bull divergence
+// during excursion OR a bullish absorption print near the low).
+isS1 = i_enableS1 and barstate.isconfirmed and reclaimedFromBelow and (recentBullDiv or recentAbsorpBull)
+
+// S2 — Failed Breakout Above VAH → SHORT (mirror of S1).
+isS2 = i_enableS2 and barstate.isconfirmed and reclaimedFromAbove and (recentBearDiv or recentAbsorpBear)
+
+if barstate.isconfirmed
+    array.clear(activeSetups)
+    if isS1
+        // Targets: priorPOC → priorVAH → next opposing HVN/poor high.
+        // Invalidation: lowest low of the excursion (last 2 bars covers
+        // the typical reclaim pattern).
+        s1 = setupT.new(
+                 "Failed Breakdown Below VAL", "long", "FB-VAL",
+                 0, "",
+                 not na(priorPOC) ? priorPOC : devPOC,
+                 priorVAH,
+                 na,
+                 math.min(low, low[1]))
+        array.push(activeSetups, s1)
+    if isS2
+        s2 = setupT.new(
+                 "Failed Breakout Above VAH", "short", "FB-VAH",
+                 0, "",
+                 not na(priorPOC) ? priorPOC : devPOC,
+                 priorVAL,
+                 na,
+                 math.max(high, high[1]))
+        array.push(activeSetups, s2)
 
 
 // ─── 10. SCORING ────────────────────────────────────────────────────────────
@@ -513,6 +567,16 @@ regimeColor = switch auctionState
     "Repair Auction"       => color.new(color.purple, 92)
     => color.new(color.gray, 95)
 bgcolor(i_showRegimeBg ? regimeColor : na, title="Auction regime")
+
+// Setup labels — placed at the trigger bar. Persist as historical markers.
+// Tooltip carries the full setup name; the on-chart code stays terse.
+if barstate.isconfirmed
+    for s in activeSetups
+        labelColor = s.side == "long" ? color.new(color.green, 0) : color.new(color.red, 0)
+        labelStyle = s.side == "long" ? label.style_label_up : label.style_label_down
+        labelY     = s.side == "long" ? low : high
+        labelText  = s.grade == "" ? s.code : s.code + " " + s.grade
+        label.new(bar_index, labelY, labelText, color=labelColor, textcolor=color.white, style=labelStyle, size=size.small, tooltip=s.name)
 
 // Diagnostic plots — visible only in the Data Window.
 plot(rowSize,          "Row size (price)",          color=color.new(color.gray, 60), display=display.data_window)
