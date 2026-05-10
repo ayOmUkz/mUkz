@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 11 of 12 (dashboard table).
+// Build status: Step 12 of 12 (alerts) — v1 complete.
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -1078,4 +1078,51 @@ if barstate.isconfirmed
 
 
 // ─── 12. ALERTS ─────────────────────────────────────────────────────────────
-// TODO Step 12: alertcondition + alert() payloads.
+// Two layers:
+//   1. Static alertcondition() — one per setup × side, plus a meta "any A+".
+//      These are what users see in TV's alert-creation dialog.
+//   2. Dynamic alert() — emits a JSON payload for any active setup graded
+//      ≥ B. Fires once per bar close. Useful for webhook routing.
+
+// Static "any A+" flag, computed across active setups.
+hasAplus = false
+if barstate.isconfirmed and array.size(activeSetups) > 0
+    for s in activeSetups
+        if s.grade == "A+"
+            hasAplus := true
+            break
+
+alertcondition(isS1,      "BIG_OPP_LONG_FB_VAL",       "Long: Failed Breakdown Below VAL")
+alertcondition(isS2,      "BIG_OPP_SHORT_FB_VAH",      "Short: Failed Breakout Above VAH")
+alertcondition(isS3Long,  "BIG_OPP_LONG_80R",          "Long: 80% Value Rotation Up")
+alertcondition(isS3Short, "BIG_OPP_SHORT_80R",         "Short: 80% Value Rotation Down")
+alertcondition(isS4,      "BIG_OPP_LONG_IE",           "Long: Initiative Expansion Above VAH")
+alertcondition(isS5,      "BIG_OPP_SHORT_IE",          "Short: Initiative Expansion Below VAL")
+alertcondition(isS6Long,  "BIG_OPP_LONG_LVN",          "Long: LVN Air Pocket")
+alertcondition(isS6Short, "BIG_OPP_SHORT_LVN",         "Short: LVN Air Pocket")
+alertcondition(isS7Long,  "BIG_OPP_LONG_POC_MAGNET",   "Long: POC Magnet Reversion")
+alertcondition(isS7Short, "BIG_OPP_SHORT_POC_MAGNET",  "Short: POC Magnet Reversion")
+alertcondition(hasAplus,  "BIG_OPP_ANY_A_PLUS",        "Any setup graded A+")
+
+// JSON-safe price formatter (na → "null" so the payload stays valid JSON).
+f_fmtJsonNum(p) => na(p) ? "null" : str.tostring(p, format.mintick)
+
+// Dynamic JSON alerts for any active setup with a non-empty grade.
+if barstate.isconfirmed and array.size(activeSetups) > 0
+    for s in activeSetups
+        if s.grade != ""
+            payload = "{" +
+                 "\"symbol\":\""  + syminfo.tickerid     + "\"," +
+                 "\"tf\":\""      + timeframe.period     + "\"," +
+                 "\"setup\":\""   + s.name               + "\"," +
+                 "\"code\":\""    + s.code               + "\"," +
+                 "\"side\":\""    + s.side               + "\"," +
+                 "\"grade\":\""   + s.grade              + "\"," +
+                 "\"score\":"     + str.tostring(s.score)         + "," +
+                 "\"entry\":"     + f_fmtJsonNum(close)            + "," +
+                 "\"t1\":"        + f_fmtJsonNum(s.target1)        + "," +
+                 "\"t2\":"        + f_fmtJsonNum(s.target2)        + "," +
+                 "\"t3\":"        + f_fmtJsonNum(s.target3)        + "," +
+                 "\"invalid\":"   + f_fmtJsonNum(s.invalidPrice)   +
+                 "}"
+            alert(payload, alert.freq_once_per_bar_close)
