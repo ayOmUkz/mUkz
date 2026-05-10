@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 3 of 12 (POC / VAH / VAL for developing + prior profiles).
+// Build status: Step 4 of 12 (HVN / LVN clustering + visual bands).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -185,6 +185,8 @@ var float           devAnchor    = na
 var float           priorAnchor  = na
 var float           devRowSize   = na
 var float           priorRowSize = na
+var int             devStartBar  = na
+var int             priorStartBar = na
 
 // Snapshot dev → prior on newAnchor, then reset dev with current open + rowSize.
 // Done BEFORE aggregating this bar so the fresh anchor is valid for it.
@@ -193,11 +195,13 @@ if newAnchor and barstate.isconfirmed
     devKeys = devVolMap.keys()
     for k in devKeys
         priorVolMap.put(k, devVolMap.get(k))
-    priorAnchor  := devAnchor
-    priorRowSize := devRowSize
+    priorAnchor   := devAnchor
+    priorRowSize  := devRowSize
+    priorStartBar := devStartBar
     devVolMap.clear()
-    devAnchor    := open
-    devRowSize   := rowSize
+    devAnchor     := open
+    devRowSize    := rowSize
+    devStartBar   := bar_index
 
 // Aggregate this bar's LTF volumes into developing. Confirmed-only to prevent
 // intra-bar double counting on the live bar.
@@ -279,7 +283,94 @@ f_buildProfile(m, anchor, rs, vaPct) =>
 
 
 // ─── 5. HVN / LVN ───────────────────────────────────────────────────────────
-// TODO Step 4: Node detection + clustering.
+// Identifies High-Volume and Low-Volume Node clusters from a bin map.
+// HVN = contiguous bins each with volume ≥ hvnMult × median present-bin
+// volume. LVN = contiguous bins each ≤ lvnMult × median, AND the bins on
+// both sides of the cluster must have above-median volume (the "trough"
+// has to be bordered by walls). Sparse maps: missing keys count as 0.
+
+type zoneT
+    int   topIdx
+    int   botIdx
+    float priceTop
+    float priceBot
+    float peakVol
+
+f_findNodes(m, anchor, rs, hvnMult, lvnMult, lvnMinPrice) =>
+    hvnZones = array.new<zoneT>()
+    lvnZones = array.new<zoneT>()
+    keys = m.keys()
+    n = array.size(keys)
+    if n >= 5 and not na(anchor) and rs > 0
+        // Median of present-bin volumes (skip 0-volume gaps so a narrow
+        // profile doesn't collapse the median to 0).
+        vols = array.new<float>()
+        minIdx = int(na)
+        maxIdx = int(na)
+        for k in keys
+            v = m.get(k)
+            array.push(vols, v)
+            if na(minIdx) or k < minIdx
+                minIdx := k
+            if na(maxIdx) or k > maxIdx
+                maxIdx := k
+        medV = array.median(vols)
+        hvnThresh = hvnMult * medV
+        lvnThresh = lvnMult * medV
+        // Cluster walk: scan contiguous range, opening/closing HVN and
+        // LVN runs as bins cross the thresholds.
+        hvnTop = int(na)
+        hvnBot = int(na)
+        hvnPeak = 0.0
+        lvnTop = int(na)
+        lvnBot = int(na)
+        if medV > 0
+            for i = minIdx to maxIdx
+                raw = m.get(i)
+                vol = na(raw) ? 0.0 : raw
+                isHvn = vol >= hvnThresh
+                isLvn = vol <= lvnThresh
+                // HVN cluster — open/extend/close.
+                if isHvn
+                    if na(hvnTop)
+                        hvnBot := i
+                        hvnPeak := 0.0
+                    hvnTop := i
+                    if vol > hvnPeak
+                        hvnPeak := vol
+                else if not na(hvnTop)
+                    z = zoneT.new(hvnTop, hvnBot, f_binTop(hvnTop, anchor, rs), f_binBottom(hvnBot, anchor, rs), hvnPeak)
+                    array.push(hvnZones, z)
+                    hvnTop := int(na)
+                    hvnBot := int(na)
+                    hvnPeak := 0.0
+                // LVN cluster — open/extend/close. Closure validates that
+                // the cluster is bordered above and below by ABOVE-median
+                // volume (true "trough between walls").
+                if isLvn
+                    if na(lvnTop)
+                        lvnBot := i
+                    lvnTop := i
+                else if not na(lvnTop)
+                    width = (lvnTop - lvnBot + 1) * rs
+                    bottomBorder = lvnBot - 1 >= minIdx ? m.get(lvnBot - 1) : na
+                    topBorder    = lvnTop + 1 <= maxIdx ? m.get(lvnTop + 1) : na
+                    belowVol = na(bottomBorder) ? 0.0 : bottomBorder
+                    aboveVol = na(topBorder)    ? 0.0 : topBorder
+                    if belowVol > medV and aboveVol > medV and width >= lvnMinPrice
+                        z = zoneT.new(lvnTop, lvnBot, f_binTop(lvnTop, anchor, rs), f_binBottom(lvnBot, anchor, rs), 0.0)
+                        array.push(lvnZones, z)
+                    lvnTop := int(na)
+                    lvnBot := int(na)
+            // Flush any HVN cluster open at the top of the range. Open LVN
+            // clusters at the edges have no upper wall and are discarded.
+            if not na(hvnTop)
+                z = zoneT.new(hvnTop, hvnBot, f_binTop(hvnTop, anchor, rs), f_binBottom(hvnBot, anchor, rs), hvnPeak)
+                array.push(hvnZones, z)
+    [hvnZones, lvnZones]
+
+[devHvnZones,   devLvnZones]   = f_findNodes(devVolMap,   devAnchor,   devRowSize,   i_hvnMult, i_lvnMult, i_lvnMinTicks * syminfo.mintick)
+[priorHvnZones, priorLvnZones] = f_findNodes(priorVolMap, priorAnchor, priorRowSize, i_hvnMult, i_lvnMult, i_lvnMinTicks * syminfo.mintick)
 
 
 // ─── 6. ORDER FLOW ──────────────────────────────────────────────────────────
@@ -333,6 +424,41 @@ f_clearBoxes(arr) =>
     for b in arr
         box.delete(b)
     array.clear(arr)
+
+// HVN / LVN band boxes — recycled per confirmed bar. Prior bands span from
+// prior session's start through current bar (forward extension shows where
+// today's price meets yesterday's structure). Dev bands span the live session.
+var array<box> hvnBoxesPrior = array.new<box>()
+var array<box> lvnBoxesPrior = array.new<box>()
+var array<box> hvnBoxesDev   = array.new<box>()
+var array<box> lvnBoxesDev   = array.new<box>()
+
+f_renderZones(zones, leftBar, rightBar, fill) =>
+    out = array.new<box>()
+    if not na(leftBar)
+        for z in zones
+            b = box.new(leftBar, z.priceTop, rightBar, z.priceBot, border_color=na, bgcolor=fill)
+            array.push(out, b)
+    out
+
+if barstate.isconfirmed
+    f_clearBoxes(hvnBoxesPrior)
+    f_clearBoxes(lvnBoxesPrior)
+    f_clearBoxes(hvnBoxesDev)
+    f_clearBoxes(lvnBoxesDev)
+    if i_showNodes
+        pHvn = f_renderZones(priorHvnZones, priorStartBar, bar_index, color.new(color.yellow,  88))
+        pLvn = f_renderZones(priorLvnZones, priorStartBar, bar_index, color.new(color.fuchsia, 88))
+        dHvn = f_renderZones(devHvnZones,   devStartBar,   bar_index, color.new(color.yellow,  92))
+        dLvn = f_renderZones(devLvnZones,   devStartBar,   bar_index, color.new(color.fuchsia, 92))
+        for b in pHvn
+            array.push(hvnBoxesPrior, b)
+        for b in pLvn
+            array.push(lvnBoxesPrior, b)
+        for b in dHvn
+            array.push(hvnBoxesDev, b)
+        for b in dLvn
+            array.push(lvnBoxesDev, b)
 
 if barstate.isconfirmed
     f_clearBoxes(devHistoBoxes)
