@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 10 of 12 (scoring + grading).
+// Build status: Step 11 of 12 (dashboard table).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -875,6 +875,100 @@ regimeColor = switch auctionState
     "Repair Auction"       => color.new(color.purple, 92)
     => color.new(color.gray, 95)
 bgcolor(i_showRegimeBg ? regimeColor : na, title="Auction regime")
+
+// Dashboard table — rendered only on the last bar; cells overwritten each
+// realtime tick so the displayed numbers stay current.
+f_dashPos(s) =>
+    switch s
+        "top_right"     => position.top_right
+        "top_left"      => position.top_left
+        "middle_right"  => position.middle_right
+        "middle_left"   => position.middle_left
+        "bottom_right"  => position.bottom_right
+        "bottom_left"   => position.bottom_left
+        => position.top_right
+
+f_fmtPrice(p) => na(p) ? "—" : str.tostring(p, format.mintick)
+f_fmtNum(p, fmt) => na(p) ? "—" : str.tostring(p, fmt)
+
+f_gradeBg(g) =>
+    switch g
+        "A+" => color.new(color.lime,   30)
+        "A"  => color.new(color.green,  50)
+        "B"  => color.new(color.yellow, 50)
+        => color.new(color.gray, 70)
+
+f_stateBg(st, bias) =>
+    switch st
+        "Initiative Expansion" => bias == "Bullish" ? color.new(color.green, 60) : color.new(color.red, 60)
+        "Failed Auction"       => color.new(color.orange, 60)
+        "Repair Auction"       => color.new(color.purple, 60)
+        => color.new(color.gray, 70)
+
+var table dashboard = na
+
+if barstate.islast and i_showDashboard
+    if na(dashboard)
+        dashboard := table.new(f_dashPos(i_dashboardPos), 3, 7, bgcolor=color.new(color.black, 70), border_color=color.new(color.gray, 50), border_width=1)
+
+    // Pick the highest-scoring active setup for the headline row.
+    activeName  = "—"
+    activeGrade = ""
+    activeScore = 0
+    activeT1    = float(na)
+    activeT2    = float(na)
+    activeT3    = float(na)
+    activeInv   = float(na)
+    if array.size(activeSetups) > 0
+        bestS = array.get(activeSetups, 0)
+        for s in activeSetups
+            if s.score > bestS.score
+                bestS := s
+        activeName  := bestS.name
+        activeGrade := bestS.grade
+        activeScore := bestS.score
+        activeT1    := bestS.target1
+        activeT2    := bestS.target2
+        activeT3    := bestS.target3
+        activeInv   := bestS.invalidPrice
+
+    trappedLabel = barsAboveVAH > 0 ? "Trapped Longs" : barsBelowVAL > 0 ? "Trapped Shorts" : "—"
+    volExpRatio  = nz(volAvg20, 0) > 0 ? volume / volAvg20 : na
+
+    // Row 0 — auction state / bias / trapped side.
+    table.cell(dashboard, 0, 0, "State: "  + auctionState, text_color=color.white, text_size=size.small, bgcolor=f_stateBg(auctionState, auctionBias))
+    table.cell(dashboard, 1, 0, "Bias: "   + auctionBias,  text_color=color.white, text_size=size.small, bgcolor=f_stateBg(auctionState, auctionBias))
+    table.cell(dashboard, 2, 0, trappedLabel,              text_color=color.white, text_size=size.small)
+
+    // Row 1 — active setup / grade / score.
+    table.cell(dashboard, 0, 1, "Setup: " + activeName,                       text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 1, "Grade: " + (activeGrade == "" ? "—" : activeGrade), text_color=color.white, text_size=size.small, bgcolor=f_gradeBg(activeGrade))
+    table.cell(dashboard, 2, 1, "Score: " + str.tostring(activeScore),        text_color=color.white, text_size=size.small)
+
+    // Row 2 — targets.
+    table.cell(dashboard, 0, 2, "T1: "  + f_fmtPrice(activeT1), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 2, "T2: "  + f_fmtPrice(activeT2), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 2, 2, "T3: "  + f_fmtPrice(activeT3), text_color=color.white, text_size=size.small)
+
+    // Row 3 — invalidation level.
+    table.cell(dashboard, 0, 3, "Invalid: " + f_fmtPrice(activeInv), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 3, "", bgcolor=color.new(color.gray, 90))
+    table.cell(dashboard, 2, 3, "", bgcolor=color.new(color.gray, 90))
+
+    // Row 4 — developing profile metrics.
+    table.cell(dashboard, 0, 4, "dPOC: " + f_fmtPrice(devPOC), text_color=color.orange, text_size=size.small)
+    table.cell(dashboard, 1, 4, "dVAH: " + f_fmtPrice(devVAH), text_color=color.teal,   text_size=size.small)
+    table.cell(dashboard, 2, 4, "dVAL: " + f_fmtPrice(devVAL), text_color=color.teal,   text_size=size.small)
+
+    // Row 5 — prior profile metrics.
+    table.cell(dashboard, 0, 5, "pPOC: " + f_fmtPrice(priorPOC), text_color=color.new(color.orange, 0), text_size=size.small)
+    table.cell(dashboard, 1, 5, "pVAH: " + f_fmtPrice(priorVAH), text_color=color.new(color.teal,   0), text_size=size.small)
+    table.cell(dashboard, 2, 5, "pVAL: " + f_fmtPrice(priorVAL), text_color=color.new(color.teal,   0), text_size=size.small)
+
+    // Row 6 — order-flow + stretch context.
+    table.cell(dashboard, 0, 6, "CVD slope: " + f_fmtNum(cvdSlope,   "#.##"), text_color=color.gray, text_size=size.small)
+    table.cell(dashboard, 1, 6, "Vol exp: "   + f_fmtNum(volExpRatio,"#.##"), text_color=color.gray, text_size=size.small)
+    table.cell(dashboard, 2, 6, "Stretch: "   + f_fmtNum(stretchATR, "#.##"), text_color=color.gray, text_size=size.small)
 
 // Setup labels — placed at the trigger bar. Persist as historical markers.
 // Tooltip carries the full setup name + score breakdown; the on-chart code
