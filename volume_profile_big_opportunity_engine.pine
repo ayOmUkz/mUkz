@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 8 of 12 (S3 rotation + S4/S5 initiative-expansion setups).
+// Build status: Step 9 of 12 (S6 LVN air pocket + S7 POC magnet — all 7 setups live).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -550,6 +550,38 @@ f_nextLvnBelow(zones, price) =>
 nextHvnUpPrior   = f_nextHvnAbove(priorHvnZones, close)
 nextHvnDownPrior = f_nextHvnBelow(priorHvnZones, close)
 
+// LVN containment: find the LVN zone (if any) currently enclosing the
+// price. Empty zoneT (priceBot=na) signals "no LVN here".
+f_lvnContaining(zones, price) =>
+    out = zoneT.new(0, 0, float(na), float(na), 0.0)
+    for z in zones
+        if price >= z.priceBot and price <= z.priceTop
+            out := z
+            break
+    out
+
+currentLvnPrior = f_lvnContaining(priorLvnZones, close)
+currentLvnDev   = f_lvnContaining(devLvnZones,   close)
+priceInLvn      = not na(currentLvnPrior.priceBot) or not na(currentLvnDev.priceBot)
+priceInLvnPrev  = priceInLvn[1]
+enteredLvn      = priceInLvn and not priceInLvnPrev
+
+// Pick the active LVN (prior takes priority when both contain price).
+activeLvnTop = not na(currentLvnPrior.priceBot) ? currentLvnPrior.priceTop : currentLvnDev.priceTop
+activeLvnBot = not na(currentLvnPrior.priceBot) ? currentLvnPrior.priceBot : currentLvnDev.priceBot
+
+// Volume expansion / contraction. Reference is a 20-bar SMA of volume.
+volAvg20      = ta.sma(volume, 20)
+volExpanding  = not na(volAvg20) and volAvg20 > 0 and volume >= volAvg20 * 1.25
+volContracting= not na(volAvg20) and volAvg20 > 0 and volume <  volAvg20 * 0.9
+
+// Stretch from developing POC, ATR-normalized. Used by S7 magnet setup.
+stretchATR    = na(devPOC) or atrVal == 0 ? 0.0 : (close - devPOC) / atrVal
+
+// Bar shape — biased momentum bar = body ≥ half of range.
+bullishMomentumBar = close > open and (close - open) >= (high - low) * 0.5
+bearishMomentumBar = close < open and (open - close) >= (high - low) * 0.5
+
 
 // ─── 9. SETUP DETECTORS ─────────────────────────────────────────────────────
 // Each setup outputs a setupT pushed onto activeSetups. Score/grade are
@@ -601,6 +633,19 @@ isS4 = i_enableS4 and barstate.isconfirmed and auctionState == "Initiative Expan
 // S5 — Initiative Expansion Below VAL → SHORT (mirror of S4).
 testingVALFromBelow = not na(priorVAL) and high >= priorVAL - buffer and close < priorVAL
 isS5 = i_enableS5 and barstate.isconfirmed and auctionState == "Initiative Expansion" and auctionBias == "Bearish" and testingVALFromBelow
+
+// S6 — LVN Air Pocket Move. Price just entered an LVN with expanding
+// volume on a momentum bar; expect price to traverse to the next HVN.
+isS6Long  = i_enableS6 and barstate.isconfirmed and enteredLvn and volExpanding and bullishMomentumBar
+isS6Short = i_enableS6 and barstate.isconfirmed and enteredLvn and volExpanding and bearishMomentumBar
+
+// S7 — POC Magnet Inventory Unwind. Price stretched ≥ stretchAtr × ATR
+// from developing POC, with order-flow exhaustion (recent divergence) and
+// drying volume → expect reversion toward POC.
+overstretchedUp   = stretchATR >=  i_stretchAtr
+overstretchedDown = stretchATR <= -i_stretchAtr
+isS7Short = i_enableS7 and barstate.isconfirmed and overstretchedUp   and recentBearDiv and volContracting
+isS7Long  = i_enableS7 and barstate.isconfirmed and overstretchedDown and recentBullDiv and volContracting
 
 if barstate.isconfirmed
     array.clear(activeSetups)
@@ -661,6 +706,42 @@ if barstate.isconfirmed
                  na,
                  priorVAL + buffer)
         array.push(activeSetups, s5)
+    if isS6Long
+        s6l = setupT.new(
+                  "LVN Air Pocket Up", "long", "LVN↑",
+                  0, "",
+                  nextHvnUpPrior,
+                  na,
+                  na,
+                  not na(activeLvnBot) ? activeLvnBot - buffer : math.min(low, low[1]))
+        array.push(activeSetups, s6l)
+    if isS6Short
+        s6s = setupT.new(
+                  "LVN Air Pocket Down", "short", "LVN↓",
+                  0, "",
+                  nextHvnDownPrior,
+                  na,
+                  na,
+                  not na(activeLvnTop) ? activeLvnTop + buffer : math.max(high, high[1]))
+        array.push(activeSetups, s6s)
+    if isS7Long
+        s7l = setupT.new(
+                  "POC Magnet Reversion Up", "long", "POC←",
+                  0, "",
+                  devPOC,
+                  priorPOC,
+                  na,
+                  math.min(low, low[1]) - buffer)
+        array.push(activeSetups, s7l)
+    if isS7Short
+        s7s = setupT.new(
+                  "POC Magnet Reversion Down", "short", "POC←",
+                  0, "",
+                  devPOC,
+                  priorPOC,
+                  na,
+                  math.max(high, high[1]) + buffer)
+        array.push(activeSetups, s7s)
 
 
 // ─── 10. SCORING ────────────────────────────────────────────────────────────
@@ -701,6 +782,8 @@ plot(ltfActive ? 1 : 0,"LTF active (1=yes, 0=fallback)", color=color.new(color.g
 plot(barDelta,         "Bar delta",                 color=color.new(color.gray, 60), display=display.data_window)
 plot(sessionCvd,       "Session CVD",               color=color.new(color.gray, 60), display=display.data_window)
 plot(cvdSlope,         "CVD slope (lookback)",      color=color.new(color.gray, 60), display=display.data_window)
+plot(stretchATR,       "Stretch from POC (ATR)",    color=color.new(color.gray, 60), display=display.data_window)
+plot(volume / nz(volAvg20, volume), "Vol expansion ratio",  color=color.new(color.gray, 60), display=display.data_window)
 
 // Step 5 sanity markers — divergence + absorption events. Will be folded
 // into the dashboard table once Step 11 lands.
