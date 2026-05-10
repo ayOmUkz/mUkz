@@ -4,7 +4,7 @@
 // Volume Profile + Auction Market Theory big-opportunity detector for ES/NQ.
 // See BLUEPRINT.md for the full design.
 //
-// Build status: Step 5 of 12 (CVD via ta.requestVolumeDelta + divergence + absorption).
+// Build status: Step 6 of 12 (auction state machine + regime tint).
 // Locked v1 decisions: Pine v6, RTH default with ETH toggle,
 // ta.requestVolumeDelta as sole CVD source, single combined indicator.
 // ============================================================================
@@ -427,7 +427,63 @@ absorptionBear  = isAbsorption and barDelta > 0
 
 
 // ─── 7. AUCTION STATE MACHINE ───────────────────────────────────────────────
-// TODO Step 6: Balance / Failed / Initiative / Repair classification.
+// Classifies each confirmed bar into one of: Balance / Failed Auction /
+// Initiative Expansion / Repair Auction (Repair stays a placeholder until
+// Step 8 brings the structural-repair primitives online). State is sticky
+// — it persists until a transition condition fires, avoiding flip-flop on
+// quiet bars.
+
+// Excursion bar counters: how many consecutive bars closed outside prior VA.
+var int barsAboveVAH = 0
+var int barsBelowVAL = 0
+if barstate.isconfirmed
+    if not na(priorVAH) and close > priorVAH
+        barsAboveVAH := barsAboveVAH + 1
+    else
+        barsAboveVAH := 0
+    if not na(priorVAL) and close < priorVAL
+        barsBelowVAL := barsBelowVAL + 1
+    else
+        barsBelowVAL := 0
+
+// POC migration. Compares developing POC to its value `lookback` bars ago.
+pocPrev           = devPOC[i_pocMigrationLookback]
+pocChangePrice    = na(pocPrev) or na(devPOC) ? 0.0 : devPOC - pocPrev
+pocMigrationTicks = pocChangePrice / syminfo.mintick
+pocMigratingUp    = pocMigrationTicks >=  i_pocMigrationTicks
+pocMigratingDown  = pocMigrationTicks <= -i_pocMigrationTicks
+pocMigrating      = pocMigratingUp or pocMigratingDown
+
+// Is current close inside the developing value area?
+insideDevVA = not na(devVAH) and not na(devVAL) and close >= devVAL and close <= devVAH
+
+// Transition conditions.
+isInitiativeUp     = barsAboveVAH >= i_acceptBars and pocMigratingUp
+isInitiativeDown   = barsBelowVAL >= i_acceptBars and pocMigratingDown
+reclaimedFromAbove = not na(priorVAH) and barsAboveVAH == 0 and nz(barsAboveVAH[1]) >= 1
+reclaimedFromBelow = not na(priorVAL) and barsBelowVAL == 0 and nz(barsBelowVAL[1]) >= 1
+
+// Sticky state. Updated only when a transition condition fires; otherwise
+// the previous classification carries forward.
+var string auctionState = "Balance"
+var string auctionBias  = "Neutral"
+
+if barstate.isconfirmed
+    if isInitiativeUp
+        auctionState := "Initiative Expansion"
+        auctionBias  := "Bullish"
+    else if isInitiativeDown
+        auctionState := "Initiative Expansion"
+        auctionBias  := "Bearish"
+    else if reclaimedFromAbove
+        auctionState := "Failed Auction"
+        auctionBias  := "Bearish"
+    else if reclaimedFromBelow
+        auctionState := "Failed Auction"
+        auctionBias  := "Bullish"
+    else if insideDevVA and not pocMigrating
+        auctionState := "Balance"
+        auctionBias  := "Neutral"
 
 
 // ─── 8. CONTEXT METRICS ─────────────────────────────────────────────────────
@@ -449,6 +505,14 @@ absorptionBear  = isAbsorption and barDelta > 0
 plotchar(i_showSessionDbg and sessionStartEvent and barstate.isconfirmed, "Anchor start", "▲", location.bottom, color=color.new(color.green, 0), size=size.tiny)
 plotchar(i_showSessionDbg and sessionEndEvent   and barstate.isconfirmed, "Anchor end",   "▼", location.top,    color=color.new(color.red,   0), size=size.tiny)
 bgcolor(i_showSessionDbg and inSession ? color.new(color.blue, 95) : na, title="In-session tint (debug)")
+
+// Auction-state regime tint. Color coded by state + bias.
+regimeColor = switch auctionState
+    "Initiative Expansion" => auctionBias == "Bullish" ? color.new(color.green,  92) : color.new(color.red,   92)
+    "Failed Auction"       => color.new(color.orange, 92)
+    "Repair Auction"       => color.new(color.purple, 92)
+    => color.new(color.gray, 95)
+bgcolor(i_showRegimeBg ? regimeColor : na, title="Auction regime")
 
 // Diagnostic plots — visible only in the Data Window.
 plot(rowSize,          "Row size (price)",          color=color.new(color.gray, 60), display=display.data_window)
