@@ -1,0 +1,1 @@
+trade_id,date,time,setup,instrument,side,day_type,context,trigger_time,entry_price,stop_price,stop_ticks,tp1_price,tp2_price,contracts,dollar_risk,dollar_pnl,r_multiple,checklist_pass,agent_verdict,screenshot,notes
