@@ -14,9 +14,9 @@ Two vocabularies run in parallel throughout:
 - **Game language** — grass, encounter, party, gym, Dex.
 - **Trading language** — signal, alert, position, sector, scanner archive.
 
-Every game term resolves to exactly **one** trading meaning. The translation table (§3) and glossary (§11) are the contract. Nothing here is decoration-first: every tile, bar, and color carries data. The brief is "nostalgic but institutional" — treat the pixel art as a _serious information design system_ that happens to be fun.
+Every game term resolves to exactly **one** trading meaning. The translation table (§3) and glossary (§12) are the contract. Nothing here is decoration-first: every tile, bar, and color carries data. The brief is "nostalgic but institutional" — treat the pixel art as a _serious information design system_ that happens to be fun.
 
-Sections §1–§10 map 1:1 to the requested deliverables.
+Sections §1–§7 and §9–§11 cover the originally-requested 10 deliverables. §8 (Ichimoku Weather System) is an extension module that the rest of the document now plugs into.
 
 ---
 
@@ -85,7 +85,7 @@ You are a **Scout** (the brief's "trainer," but institutional). The market is yo
 | Towns / cities | Market sectors | Each has a Gym |
 | Routes | Watchlists | "Route Alpha" = your primary watchlist |
 | Tall grass patches | Opportunity zones | Where hidden setups live |
-| Weather | Volatility regime | Clear / Rain / Storm / Fog / Harsh Sun |
+| Weather | Market environment (Ichimoku-driven — see §8) | Clear Skies · Thunderstorm · Fog Zone · Heat Wave · Front Change · etc. |
 | Time of day | Trading session | Dawn=pre-market, Day=RTH, Dusk=AH, Night=Globex |
 | Gyms | Sector strength challenges | Has a "boss ticker" = sector leader |
 | The Exchange (capital district) | Index futures hub | Route ES / Route NQ branch from here |
@@ -169,7 +169,12 @@ The master contract. **Game mechanic → Trading meaning → How it shows up in 
 | Gym badge | Demonstrated edge in that sector | Badge case on Trainer Card |
 | Routes | Watchlists | Map paths between towns |
 | NPCs | Market participants / flow archetypes | Sprites that emit dialogue + signals |
-| Weather | Volatility regime | Map overlay + status bar |
+| Weather (Ichimoku) | Market environment: direction + clarity + forecast (§8) | Drifting cloud band per tile + status-bar badge + **Weather Score** |
+| Kumo (cloud band) | Direction + structural support/resistance | Pixel cloud across the tile; twist = regime-change banner |
+| Tenkan-sen | Short-term momentum "wind" | Windsock glyph on the status bar |
+| Kijun-sen | Equilibrium / mean-reversion magnet | Magnetic line; magnet icon when flat |
+| Chikou span | Confirmation / "visibility" | Fog/clarity gauge on the Battle Screen |
+| Weather Score (−100…+100) | Composite Ichimoku read | Badge + number; per-ticker, per-sector, per-index |
 | Time of day | Session (pre/RTH/AH/overnight) | Lighting + clock |
 | Map markers / flags | Market regime tags | Planted flag icons |
 | Minimap | Portfolio + market at-a-glance | Corner widget |
@@ -527,7 +532,12 @@ STATUS         ● Watching   ○ Entered   ○ Avoided   ○ Completed
 | **Grass tile set** | Static + 3-frame rustle animation | Scanner field, map |
 | **Tile-based map** | Towns, routes, water, buildings, gym doors | World Map |
 | **Minimap widget** | Compressed map + party/heat dots | Corner of every page |
-| **Weather overlay** | Particle layer: rain, storm, fog, sun rays | Regime |
+| **Weather overlay (Kumo)** | Drifting cloud band; thickness = strength; twist animation | Ichimoku market environment (§8) |
+| **Forward-cloud strip** | Narrower projected cloud ahead of current bar | Ichimoku forecast |
+| **Wind glyph** | Windsock/arrow; tilts with Tenkan slope | Short-term momentum |
+| **Magnet icon** | Pulses when flat Kijun is near price | Mean-reversion warning |
+| **Visibility meter** | Small fog gauge for Chikou clarity | Confirmation strength |
+| **Weather badge** | Glyph + score chip (−100…+100) | Weather Score, multi-scale |
 | **Day/night lighting** | Palette shift over the map | Session |
 | **Map flag / marker** | Planted pennant icon | Regime tags |
 | **Badge icons** | 16×16 minted-metal style | Trainer Card badge case |
@@ -650,7 +660,223 @@ Rarity tells you _how good the prize is._ Capture difficulty tells you _whether 
 
 ---
 
-## 8. Example User Flow — Scanner Signal → Trade Decision
+## 8. Ichimoku Weather System
+
+> Ichimoku Cloud = the dashboard's weather engine. Direction, clarity, pressure, visibility, and forecast — read at a glance, anywhere in the world.
+
+Until now "weather" was a vibe. This is its engine. Every component of the Ichimoku Kinkō Hyō system maps to a literal atmospheric phenomenon in the TALLGRASS world, and a single derived **Weather Score** drives encounter quality, alert routing, and the confidence number on the Battle Screen. The Scout should never need to "open the Ichimoku panel" — the weather is _everywhere_, every page, all the time.
+
+### 8.1 The five components → five atmospheric phenomena
+
+| Ichimoku component | Atmospheric phenomenon | What it tells the Scout |
+|---|---|---|
+| **Kumo (Cloud)** — Senkou A/B | The visible weather layer | Direction + structural support/resistance |
+| **Tenkan-Sen** (9-period) | Short-term **wind** | Near-term momentum's tail/headwind |
+| **Kijun-Sen** (26-period) | Atmospheric **pressure center** | Equilibrium / mean-reversion magnet |
+| **Chikou Span** (lagging close) | **Visibility** | Whether confirmation is clear or blocked |
+| **Senkou A vs. Senkou B** (forward) | The **forecast** | What the next 26 bars are setting up |
+
+### 8.2 Kumo (Cloud) — the weather layer
+
+The Kumo is rendered as a literal cloud bank drifting across the World Map and over each ticker's tile.
+
+| Kumo state | Weather meaning |
+|---|---|
+| Price **above** the cloud | **Clear skies** — bullish; line-of-sight upside |
+| Price **below** the cloud | **Stormy** — bearish overhead; downside in play |
+| Price **inside** the cloud | **Fog Zone** — no clear bias; low-quality trades |
+| **Thin** cloud (Senkou A ≈ B) | **Weak protection** — easy to puncture |
+| **Thick** cloud | **Heavy atmosphere** — strong barrier |
+| **Cloud twist** (Senkou A crosses B) | **Weather front** — regime change forming |
+
+Pixel rendering: a horizontal band of pixel cloud tiles across the sector tile; tint = bullish/bearish, opacity = thickness; the twist animates as two colored layers crossing.
+
+### 8.3 Tenkan-Sen — short-term wind
+
+| Tenkan state | Wind |
+|---|---|
+| Rising | **Tailwind** — supports the direction of travel |
+| Falling | **Headwind** — fights the direction |
+| Flat | **Dead air** — no momentum |
+| Price far from Tenkan | **Overextended gust** — pullback likely |
+
+Rendered as a windsock or directional arrow on the status bar.
+
+### 8.4 Kijun-Sen — pressure center
+
+| Kijun state | Pressure |
+|---|---|
+| Price above Kijun | **High pressure** — bullish bias |
+| Price below Kijun | **Low pressure** — bearish bias |
+| Kijun flat | **Magnetic equilibrium** — mean-reversion magnet |
+| Price returning to Kijun | **Pressure reset** / pullback zone |
+
+Rendered as a horizontal magnetic line on the chart; a flat Kijun gets a pulsing magnet icon as a warning.
+
+### 8.5 Chikou Span — visibility
+
+| Chikou state | Visibility |
+|---|---|
+| Above past price | **Clear visibility** — confirmation aligned |
+| Below past price | **Poor visibility** — confirmation against |
+| Tangled in past price | **Cloudy** — confirmation blocked |
+| Breaking free | **Visibility improving** — fresh confirmation |
+
+Rendered as a fog/clarity meter and as a "Visibility:" line on the Battle Screen.
+
+### 8.6 Senkou A/B forward cloud — the forecast
+
+| Forward cloud | Forecast |
+|---|---|
+| Bullish (A > B) | **Favorable** — sunny outlook |
+| Bearish (B > A) | **Dangerous** — storms ahead |
+| Narrowing | **Unstable transition** — breakout/breakdown risk |
+| Expanding | **Stronger regime forming** — conviction rising |
+
+Rendered as the projected cloud band on the map's near horizon and as a forecast strip on the Battle Screen.
+
+### 8.7 Named weather conditions
+
+The canonical states the dashboard surfaces (status bar, NPC dialogue, alerts):
+
+| Ichimoku condition | Weather name | Trading meaning |
+|---|---|---|
+| Price above cloud, Tenkan > Kijun, Chikou clear | **☀ Clear Skies** | Strong bullish environment |
+| Price below cloud, Tenkan < Kijun, Chikou weak | **⛈ Thunderstorm** | Strong bearish environment |
+| Price inside cloud | **🌫 Fog Zone** | Low clarity — avoid weak trades |
+| Flat Kijun nearby | **🧲 Magnetic Pressure** | Mean-reversion risk |
+| Thin forward cloud | **💨 Unstable Weather** | Breakout/breakdown risk |
+| Thick cloud overhead | **🏔 Heavy Resistance** | Upside difficult |
+| Thick cloud beneath | **🛡 Strong Support** | Downside difficult |
+| Cloud twist ahead | **🌪 Weather Front Change** | Possible regime shift |
+| Tenkan/Kijun compression | **🌡 Calm Before Storm** | Energy building |
+| Price stretched from Tenkan/Kijun | **🔥 Heat Wave** | Overextended; pullback risk |
+
+States are not mutually exclusive — a tile can be _Clear Skies + Heat Wave_ ("bullish but overextended"), which is exactly the nuance the Scout needs.
+
+### 8.8 The Weather Score (−100 … +100)
+
+A single composite, surfaced as a number + a one-glyph weather icon. Computed per ticker, per sector, and per index.
+
+**Weighted factors** (defaults; tunable per profile):
+
+| Factor | Direction | Weight |
+|---|---|---|
+| Price vs. cloud (above / inside / below) | bullish / neutral / bearish | **30** |
+| Tenkan vs. Kijun (TK cross) | bullish / bearish | **15** |
+| Price vs. Kijun | bullish / bearish | **15** |
+| Chikou vs. past price (clear / tangled) | bullish / penalty / bearish | **15** |
+| Future cloud bias (Senkou A vs. B) | bullish / bearish | **15** |
+| Thickness & stability of forward cloud | confidence multiplier | **10** |
+| Penalties: cloud twist ahead, flat Kijun nearby, Heat Wave, inside cloud | subtract | **−5 … −15 each** |
+
+**Bands → label:**
+
+| Score | Band | Default label |
+|---|---|---|
+| **+80 … +100** | Clear Bullish | ☀ **Clear Skies** |
+| **+40 … +79** | Favorable Tailwind | 🌤 **Tailwind** |
+| **−39 … +39** | Mixed / Fog | 🌫 **Fog / Mixed** |
+| **−40 … −79** | Bearish Pressure | 🌧 **Bearish Pressure** |
+| **−80 … −100** | Severe Storm | ⛈ **Severe Storm** |
+
+The score lives in three places: a corner badge on every tile (mini), the status bar (current focus), and the Pokédex entry (weather captured at encounter time).
+
+### 8.9 How weather feeds the rest of the system
+
+**World Map (Page 1).** Every sector tile carries its own Ichimoku overlay — clouds drift _physically_ across the map. Sector-wide weather is the volume-weighted average of its constituents. **🔥 Heat Wave** glyphs appear on tiles stretched from their Tenkan/Kijun. **🌪 Weather Front Change** plants a banner on tiles with an imminent twist. The status bar's regime label is now the live Ichimoku weather.
+
+**Tall Grass Scanner (Page 2).** Weather is an _ambient encounter modifier_:
+
+| Weather | Effect on the grass |
+|---|---|
+| ☀ Clear Skies | Bullish-type encounters spawn more / higher rarity |
+| ⛈ Thunderstorm | Bearish-type encounters spawn more / higher rarity |
+| 🌫 Fog Zone | All encounters de-rated one star; Ghost rate ↑ |
+| 🌪 Weather Front Change | Regime-shift alert badge over the whole field |
+| 🧲 Magnetic Pressure | Pre-encounter warning: _"Do not chase — Kijun magnet."_ |
+| 🔥 Heat Wave | Overextension warning on momentum encounters |
+
+**Encounter & Battle Screen (Pages 3 & 5).** Adds a **Weather Modifier** line to the probability stack:
+
+```
+PROBABILITY        71/100   Grade A
+ ├─ Setup quality  +52
+ ├─ Regime fit     +12  (Electric × HIGH VOL = Super Effective)
+ ├─ Weather        +15  (☀ Clear Skies on SMCI, Score +84)
+ └─ Visibility     − 8  (Chikou tangled — confirmation soft)
+```
+
+Sample surfaced strings:
+- _"Weather Bonus: +15% — price above cloud, Tenkan > Kijun."_
+- _"Weather Penalty: −20% — price inside cloud (Fog)."_
+- _"Visibility Warning: Chikou trapped in prior price."_
+- _"Pressure Warning: flat Kijun nearby — magnet risk."_
+
+**Pokédex (Page 4).** Every entry stamps the **weather at encounter time** as part of the dossier:
+
+```
+WEATHER AT CAPTURE
+  Status         ☀ Clear Skies   Score: +84
+  Price vs Cloud Above
+  Tenkan/Kijun   Bullish cross  (TK +)
+  Chikou         Clear
+  Forward Cloud  Bullish, expanding
+  Kijun distance +1.6%  (no magnet)
+```
+
+This lets the Dex stratify win rates by weather — _"Gamma Squeeze under Clear Skies = 71% win; under Fog = 38%"_ — turning weather into a backtest dimension.
+
+**Journal (Page 8 in §4).** End-of-day review surfaces a **weather timeline**: how conditions evolved across the session per sector, and which trades aligned with vs. fought the weather.
+
+### 8.10 Relationship to the existing regime model (§7.2)
+
+The §7.2 type-effectiveness chart uses regimes **TRENDING / RANGE / HIGH VOL / LOW VOL / ROTATIONAL**. Ichimoku weather is the **directional / structural classifier** that feeds it:
+
+| Ichimoku weather | Implies regime axis |
+|---|---|
+| Clear Skies / Thunderstorm | **TRENDING** (with sign) |
+| Fog Zone / Magnetic Pressure | **RANGE / CHOP** |
+| Weather Front Change | **ROTATIONAL** (transition) |
+| Calm Before Storm | **LOW VOL / COMPRESSION** |
+| Severe Storm (high-VIX confirm) | **HIGH VOL** confirmation |
+
+Vol regime (HIGH/LOW VOL) is still set primarily by realized + implied vol — Ichimoku doesn't override it. Clean mental model: **Ichimoku = the weather _pattern_; volatility = the weather _intensity_.** A Thunderstorm with high VIX is a **Severe Storm**; the same pattern with crushed VIX is "drizzle."
+
+### 8.11 Pixel rendering checklist
+
+New / extended components for the UI library (§5.2):
+
+- **Cloud band tile** (Kumo) — 2-color band, opacity for thickness, animated drift; twist = 2-frame crossfade between palettes.
+- **Forward-cloud strip** — narrower band ahead of the current bar; bullish/bearish tint + expand/contract animation.
+- **Wind glyph** (Tenkan) — windsock or arrow; tilts with slope, sways when flat.
+- **Magnet icon** (flat Kijun) — appears within N% of price; pulses.
+- **Visibility meter** (Chikou) — small fog gauge; clearer fog = better visibility.
+- **Weather badge** — one-glyph + score number; renders at sector, tile, and status-bar scales.
+- **Weather front banner** — chevron banner across tiles where a twist is imminent.
+
+### 8.12 Gameplay language palette
+
+Sample lines the dashboard uses verbatim, selected by the active weather:
+
+- _"Clear skies over NVDA. Momentum creatures are spawning."_
+- _"Fog detected inside the Kumo. Avoid low-quality encounters."_
+- _"Storm front forming below cloud. Bearish setups gaining strength."_
+- _"Cloud twist ahead — regime change possible."_
+- _"Kijun magnet nearby — do not chase the breakout."_
+- _"Chikou visibility blocked. Confirmation isn't clean."_
+- _"Tenkan tailwind active. Short-term momentum supports the trade."_
+- _"Future cloud thinning — breakout risk increasing."_
+- _"Heat wave on AAPL — bullish, but the air is thin."_
+- _"Calm before the storm on Route NQ — energy compressing."_
+
+### 8.13 Design rule
+
+Ichimoku must **feel like a world condition**, not a chart indicator. If a feature can't answer **"what kind of weather am I trading in?"** at a glance, it isn't done. The weather is the answer the Scout reads before _any_ other number on the screen.
+
+---
+
+## 9. Example User Flow — Scanner Signal → Trade Decision
 
 A concrete walkthrough, start to finish.
 
@@ -660,7 +886,7 @@ A concrete walkthrough, start to finish.
 
 3. **Encounter.** Click the rustle → screen-wipe → **"⚡ A Wild GAMMA SQUEEZE appeared!"** Card: **SMCI**, Electric, ★★★★, **Regime fit: SUPER EFFECTIVE** (Electric loves HIGH VOL), **Capture difficulty: MODERATE**. Quick stats: Momentum 82, IV Rank 19, Gamma ▓▓▓▓░, RVOL 3.1×.
 
-4. **Investigate → Battle Screen.** Scout hits **INVESTIGATE**. The Battle Screen lays out the dossier: entry 42.10–42.60, stop 40.80, targets 47.50 / 51.00, IV Rank 19 (cheap ✔), liquidity deep ✔, order flow buyers lifting ✔, R/R 1:2.4, probability **71/100 — Grade A**.
+4. **Investigate → Battle Screen.** Scout hits **INVESTIGATE**. The Battle Screen lays out the dossier: entry 42.10–42.60, stop 40.80, targets 47.50 / 51.00, IV Rank 19 (cheap ✔), liquidity deep ✔, order flow buyers lifting ✔, R/R 1:2.4. The probability stack: setup quality **+52**, regime fit **+12** (Electric × HIGH VOL = Super Effective), **Weather +15** (☀ Clear Skies on SMCI, Score +84), Visibility **−8** (Chikou tangled) → **71/100 — Grade A**.
 
 5. **Check the chain & risk.** **REVIEW CHAIN** → scans strikes, picks the 45C two weeks out (OI healthy). **CHECK RISK** → sizing calc says 1.0R fits within max-risk rules; portfolio heat would go 38% → 47%; warns that **NVDA (Fire) is already in the party** — note the directional correlation.
 
@@ -678,7 +904,7 @@ A concrete walkthrough, start to finish.
 
 ---
 
-## 9. Future Feature Ideas — Sims-Like Production Gameplay
+## 10. Future Feature Ideas — Sims-Like Production Gameplay
 
 The long-term vision: the world stops being a static skin and becomes a **living, persistent simulation** that rewards tending it.
 
@@ -704,17 +930,17 @@ The long-term vision: the world stops being a static skin and becomes a **living
 
 ---
 
-## 10. First MVP — One-Page HTML Dashboard
+## 11. First MVP — One-Page HTML Dashboard
 
 **Goal:** the smallest build that makes a stranger _feel_ the whole vision in 30 seconds. One screen, mock data, the complete core loop visible.
 
 > No code in this document — this is the build spec for that first page.
 
-### 10.1 What it is
+### 11.1 What it is
 
 A single self-contained `index.html` page: **a stripped "Tall Grass Scanner + Encounter + Battle + Party" on one screen.** It demonstrates `explore → encounter → decide → manage` end-to-end. Driven entirely by a small **mock data object** (~6 watchlist items, each hiding a setup) — no live feeds, no backend, no persistence.
 
-### 10.2 Layout (single viewport, no scrolling)
+### 11.2 Layout (single viewport, no scrolling)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -736,7 +962,7 @@ A single self-contained `index.html` page: **a stripped "Tall Grass Scanner + En
 
 Clicking a rustling patch opens the **Encounter → Battle modal** over this screen.
 
-### 10.3 Core interactions (the MVP must do exactly these)
+### 11.3 Core interactions (the MVP must do exactly these)
 
 1. **Ambient rustle.** On load + on a timer, mock signals fire; 1–2 grass patches animate a rustle.
 2. **Encounter.** Click a rustling patch → modal: _"Wild ⚡ Gamma Squeeze appeared!"_ with type badge, rarity stars, regime-fit tag, capture-difficulty gauge, and the 4-stat quick block.
@@ -745,19 +971,20 @@ Clicking a rustling patch opens the **Encounter → Battle modal** over this scr
 5. **Pass / Flee.** "Pass Setup" or dismiss → a line is written to the **dialogue box** (the seed of the Journal).
 6. **Dialogue box** narrates every event in typewriter text.
 
-### 10.4 Visual requirements
+### 11.4 Visual requirements
 
 - **Crystal Terminal** palette for chrome; **type accent colors** for badges; phosphor green/red for P/L.
 - One display pixel font (headers/menus) + one readable pixel mono (numbers) via webfont.
 - Chunky 4 px double-line borders; hard corners; one-tile drop shadows.
 - Stepped animation only (grass rustle = 3 frames; ball wobble = 3 states). Integer scaling.
 - Fits a 1280×720 viewport with no scroll.
+- **One Ichimoku weather badge** in the status bar — glyph + score, driven by mock data — to seed §8 in the MVP.
 
-### 10.5 Explicitly OUT of scope for the MVP
+### 11.5 Explicitly OUT of scope for the MVP
 
 Live/real data · World Map page · full Pokédex · full Journal · Gym Leaderboards · the START-menu navigation · multi-page routing · persistence/save · sound (nice-to-have, not required) · the Sims/production layer.
 
-### 10.6 Why this is the right MVP
+### 11.6 Why this is the right MVP
 
 - It renders the **entire core loop** (`explore → encounter → decide → manage`) on **one screen** — the fastest possible proof of the concept's _feel_.
 - Every element is a **seed of a full page**: The Field → Page 2, the modal → Pages 3 & 5, the Party strip → Page 6, the dialogue box → Page 8.
@@ -768,7 +995,7 @@ Live/real data · World Map page · full Pokédex · full Journal · Gym Leaderb
 
 ---
 
-## 11. Glossary — The Two-Vocabulary Contract
+## 12. Glossary — The Two-Vocabulary Contract
 
 | Game term | Trading term |
 |---|---|
@@ -796,7 +1023,14 @@ Live/real data · World Map page · full Pokédex · full Journal · Gym Leaderb
 | Badge | Discipline / sector-edge milestone |
 | Pokédex | Discovered-setup archive |
 | Bag / items | Strategy tools & order presets |
-| Weather | Volatility regime |
+| Weather | Market environment (Ichimoku Weather System, §8) |
+| Weather Score | Composite Ichimoku read, −100 … +100 |
+| Kumo | The cloud band — direction + support/resistance |
+| Tenkan tailwind / headwind | Short-term momentum slope |
+| Kijun magnet | Flat Kijun pulling price (mean-reversion warning) |
+| Chikou visibility | Lagging-span confirmation clarity |
+| Heat Wave | Price stretched too far from Tenkan/Kijun |
+| Weather Front Change | Cloud twist — regime shift forming |
 | Time of day | Trading session |
 | Elite Four | Recurring macro events |
 | The Rest Stop | End-of-day flatten + review ritual |
@@ -806,7 +1040,7 @@ Live/real data · World Map page · full Pokédex · full Journal · Gym Leaderb
 
 ---
 
-## 12. Decisions To Lock Before Build
+## 13. Decisions To Lock Before Build
 
 Open questions worth resolving early — they shape the architecture:
 
@@ -818,7 +1052,8 @@ Open questions worth resolving early — they shape the architecture:
 6. **Alert delivery.** In-app only, or push/desktop notifications for Legendary/Shiny?
 7. **Platform.** Web-first (recommended for MVP), with desktop/mobile later? Mobile changes the pixel-density math.
 8. **Accessibility.** Pixel fonts + limited palettes need a deliberate high-contrast/large-text mode — plan it in, don't bolt it on.
+9. **Ichimoku parameters.** Stick with canonical 9 / 26 / 52 across the board, or per-instrument tuning (futures vs. equities) and per-timeframe? Lock this before the Weather Score weights (§8.8) are finalized.
 
 ---
 
-_End of blueprint. Next deliverable on request: the MVP build (§10) as a single self-contained HTML page._
+_End of blueprint. Next deliverable on request: the MVP build (§11) as a single self-contained HTML page._
