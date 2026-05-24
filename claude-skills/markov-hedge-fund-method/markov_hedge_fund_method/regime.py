@@ -19,12 +19,16 @@ def label_regimes(close: pd.Series, window: int = 20, threshold: float = 0.02) -
     Bull   : rolling return > +threshold
     Bear   : rolling return < -threshold
     Sideways: otherwise
+
+    The first `window` rows have no rolling return and are excluded — warm-up
+    rows must not be labelled, otherwise synthetic Sideways transitions leak
+    into the matrix.
     """
-    rolling_return = close.pct_change(window)
-    labels = pd.Series(1, index=close.index, dtype=int)  # default Sideways
+    rolling_return = close.pct_change(window).dropna()
+    labels = pd.Series(1, index=rolling_return.index, dtype=int)  # default Sideways
     labels[rolling_return > threshold] = 2  # Bull
     labels[rolling_return < -threshold] = 0  # Bear
-    return labels.dropna()
+    return labels
 
 
 def build_transition_matrix(labels: pd.Series) -> np.ndarray:
