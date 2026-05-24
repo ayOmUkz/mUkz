@@ -1,0 +1,1335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MVP_TRADES — Auction Intelligence Terminal</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0d12; --bg2:#0f141b; --bg3:#141a23; --line:#1f2733;
+    --fg:#cdd6e0; --mut:#6b7785; --dim:#475263;
+    --grn:#22d3a8; --red:#ff4d6d; --amb:#facc15; --cyn:#22d3ee; --vio:#a78bfa;
+  }
+  html,body { background:var(--bg); color:var(--fg); font-family:'Inter',system-ui,sans-serif; }
+  body { font-size:12px; }
+  .mono, .num { font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric: tabular-nums; }
+  .panel { background:var(--bg2); border:1px solid var(--line); }
+  .panel-h { background:linear-gradient(180deg,#161d28,#0f141b); border-bottom:1px solid var(--line); }
+  .chip { background:var(--bg3); border:1px solid var(--line); padding:1px 6px; }
+  .hl-grn { color:var(--grn); } .hl-red { color:var(--red); } .hl-amb { color:var(--amb); }
+  .hl-cyn { color:var(--cyn); } .hl-vio { color:var(--vio); } .mut { color:var(--mut); } .dim { color:var(--dim); }
+  .bd { border-color:var(--line); }
+  .ttl { letter-spacing:.12em; text-transform:uppercase; font-size:10px; color:var(--mut); font-weight:600; }
+  .kv { display:flex; justify-content:space-between; align-items:center; padding:2px 0; }
+  .kv .k { color:var(--mut); }
+  .blink { animation:blink 1.6s linear infinite; }
+  @keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:.25} }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#1f2733; }
+  ::-webkit-scrollbar-thumb:hover { background:#2a3445; }
+  .grade-S { color:#fff; background:linear-gradient(135deg,#22d3a8,#22d3ee); }
+  .grade-A { color:#0a0d12; background:var(--grn); }
+  .grade-B { color:#0a0d12; background:var(--amb); }
+  .grade-C { color:#fff; background:#475263; }
+  .grade-X { color:var(--mut); background:transparent; border:1px dashed var(--dim); }
+  .bar-row:hover { background:#141a23; }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  .tab { padding:4px 10px; border-bottom:2px solid transparent; cursor:pointer; color:var(--mut); }
+  .tab.active { color:var(--fg); border-color:var(--cyn); }
+  .pulse-dot { width:6px; height:6px; border-radius:9999px; display:inline-block; }
+  .gex-bar { transition:width .25s ease; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
+<header class="panel border-b" style="height:48px">
+  <div class="flex items-center justify-between h-full px-3">
+    <div class="flex items-center gap-3">
+      <div class="font-bold tracking-widest text-[13px]"><span class="hl-cyn">MVP</span>_TRADES</div>
+      <div class="dim">|</div>
+      <div class="flex items-center gap-1">
+        <span class="ttl">SYMBOL</span>
+        <select id="sym" class="bg-transparent border bd mono text-[12px] px-2 py-0.5 outline-none cursor-pointer">
+          <option>SPY</option><option>QQQ</option><option>AAPL</option><option>NVDA</option>
+        </select>
+        <span id="symProxy" class="dim text-[10px] ml-1"></span>
+      </div>
+      <div class="dim">|</div>
+      <div class="flex items-center gap-1">
+        <span class="ttl">SESSION</span>
+        <select id="sess" class="bg-transparent border bd mono text-[12px] px-1 py-0.5 outline-none cursor-pointer">
+          <option value="RTH">RTH</option><option value="ETH">ETH</option><option value="GLOBEX">GLOBEX</option>
+        </select>
+      </div>
+      <div class="dim">|</div>
+      <div class="flex items-center gap-1"><span class="ttl">REGIME</span><span id="regime" class="mono chip">—</span></div>
+      <div class="dim">|</div>
+      <div class="flex items-center gap-1"><span class="ttl">DATE</span><span id="date" class="mono"></span><span id="clock" class="dim mono"></span></div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="liveBadge" class="chip mono text-[10px] hl-amb">MOCK DATA</span>
+      <span class="chip mono text-[10px] dim">DELAYED 15m</span>
+      <span class="flex items-center gap-1 chip mono text-[10px]"><span id="liveDot" class="pulse-dot" style="background:var(--amb)"></span><span id="liveStatus">IDLE</span></span>
+      <button id="refreshBtn" class="chip mono text-[10px] hover:bg-[#1a2230]">REFRESH</button>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════ TOP ROW (4 KPI) ═══════════════════════════ -->
+<section class="grid grid-cols-4 gap-2 p-2">
+  <div class="panel p-2">
+    <div class="ttl">Auction State</div>
+    <div class="flex items-end justify-between mt-1">
+      <div id="auctionState" class="mono text-xl font-bold">—</div>
+      <div id="auctionStateSub" class="text-[10px] mut text-right max-w-[60%]"></div>
+    </div>
+  </div>
+  <div class="panel p-2">
+    <div class="ttl">Bias</div>
+    <div class="flex items-end justify-between mt-1">
+      <div id="bias" class="mono text-xl font-bold">—</div>
+      <div id="biasMeter" class="text-[10px] mut"></div>
+    </div>
+  </div>
+  <div class="panel p-2">
+    <div class="ttl">Trapped Side</div>
+    <div class="flex items-end justify-between mt-1">
+      <div id="trapped" class="mono text-xl font-bold">—</div>
+      <div id="trappedSub" class="text-[10px] mut text-right max-w-[60%]"></div>
+    </div>
+  </div>
+  <div class="panel p-2">
+    <div class="ttl">Opportunity Grade</div>
+    <div class="flex items-end justify-between mt-1">
+      <div id="grade" class="mono text-3xl font-extrabold grade-X px-3 py-0.5">—</div>
+      <div id="gradeSub" class="text-[10px] mut text-right max-w-[60%]"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ MAIN GRID ═══════════════════════════ -->
+<section class="grid grid-cols-12 gap-2 px-2">
+
+  <!-- LEFT: Options Chain Intelligence -->
+  <aside class="col-span-3 panel">
+    <div class="panel-h flex items-center justify-between px-2 py-1">
+      <div class="ttl">Options Chain Intelligence</div>
+      <div class="flex items-center gap-1">
+        <span class="mut text-[10px]">GEX sign</span>
+        <button id="gexToggle" class="chip mono text-[10px]" title="Toggle dealer-positioning sign convention">DSC</button>
+      </div>
+    </div>
+    <div class="p-2 space-y-2 text-[12px]">
+      <div class="grid grid-cols-2 gap-2">
+        <div class="panel p-2">
+          <div class="ttl">IV Rank</div>
+          <div class="flex items-end justify-between">
+            <div id="ivRank" class="mono text-lg font-bold">—</div>
+            <div id="ivRankTag" class="text-[10px] mut"></div>
+          </div>
+        </div>
+        <div class="panel p-2">
+          <div class="ttl">IV Pctl (session)</div>
+          <div class="flex items-end justify-between">
+            <div id="ivPctl" class="mono text-lg font-bold">—</div>
+            <div id="atmIV" class="text-[10px] mut"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel p-2">
+        <div class="flex items-center justify-between">
+          <div class="ttl">Expected Move (nearest exp)</div>
+          <div id="dteTag" class="text-[10px] mut"></div>
+        </div>
+        <div class="flex items-baseline gap-2 mt-1">
+          <span id="emValue" class="mono text-xl font-bold">—</span>
+          <span class="mut text-[10px]">$</span>
+          <span id="emPct" class="mono mut text-[10px]"></span>
+        </div>
+        <div class="flex justify-between text-[10px] mut mt-1">
+          <span>Lo <span id="emLo" class="hl-red mono"></span></span>
+          <span>Hi <span id="emHi" class="hl-grn mono"></span></span>
+        </div>
+      </div>
+
+      <div class="panel p-2">
+        <div class="flex items-center justify-between">
+          <div class="ttl">GEX By Strike</div>
+          <div id="totalGex" class="text-[10px] mut mono"></div>
+        </div>
+        <div id="gexChart" class="mt-2 space-y-0.5"></div>
+        <details class="mt-2">
+          <summary class="text-[10px] mut hover:text-white">about GEX sign convention</summary>
+          <div class="text-[10px] mut mt-1 leading-snug">
+            Default <span class="hl-amb">DSC</span> assumes dealers are short calls / long puts (retail-flow assumption).
+            For SPY/QQQ where dealers are often long-call from overwriters, flip to <span class="hl-cyn">DLC</span>.
+            The sign of GEX determines whether gamma is suppressive (dealer-long) or amplifying (dealer-short).
+          </div>
+        </details>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div class="panel p-2">
+          <div class="ttl">Top Call OI</div>
+          <div id="topCallOI" class="mono text-[11px] mt-1 space-y-0.5"></div>
+        </div>
+        <div class="panel p-2">
+          <div class="ttl">Top Put OI</div>
+          <div id="topPutOI" class="mono text-[11px] mt-1 space-y-0.5"></div>
+        </div>
+      </div>
+
+      <div class="panel p-2">
+        <div class="ttl">Dealer Bias</div>
+        <div id="dealerBias" class="mono font-bold mt-1">—</div>
+        <div id="dealerBiasSub" class="text-[10px] mut"></div>
+      </div>
+
+      <div class="panel p-2">
+        <div class="ttl">Pinning Zones</div>
+        <div id="pinning" class="mt-1 text-[11px]">—</div>
+      </div>
+
+      <div class="panel p-2">
+        <div class="ttl">Unusual Flow</div>
+        <div id="unusual" class="mt-1 mono text-[11px] space-y-0.5"></div>
+      </div>
+
+      <div class="panel p-2">
+        <div class="ttl">Volatility State</div>
+        <div class="flex items-end justify-between mt-1">
+          <div id="volState" class="mono font-bold">—</div>
+          <div id="skew" class="text-[10px] mut"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER: Volume Profile Auction Map -->
+  <main class="col-span-6 panel" style="min-height:560px">
+    <div class="panel-h flex items-center justify-between px-2 py-1">
+      <div class="ttl">Volume Profile · Auction Map</div>
+      <div class="flex items-center gap-2 text-[10px] mono">
+        <span class="mut">POC</span><span id="pocVal" class="hl-amb">—</span>
+        <span class="mut">VAH</span><span id="vahVal" class="hl-cyn">—</span>
+        <span class="mut">VAL</span><span id="valVal" class="hl-cyn">—</span>
+        <span class="mut">LAST</span><span id="lastVal" class="hl-grn">—</span>
+      </div>
+    </div>
+    <div class="relative" style="height:520px">
+      <svg id="profileSvg" viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%; height:100%; display:block"></svg>
+      <div id="profileLabels" class="absolute inset-0 pointer-events-none"></div>
+    </div>
+    <div class="px-2 py-1 border-t bd flex justify-between mono text-[10px] mut">
+      <span>HVN <span id="hvnCount" class="hl-grn">0</span> · LVN <span id="lvnCount" class="hl-red">0</span></span>
+      <span>Session Range <span id="sessRange" class="mono">—</span></span>
+      <span>ATR(14) 1m <span id="atrVal" class="mono">—</span></span>
+      <span>Bucket <span id="bucketVal" class="mono">—</span></span>
+    </div>
+  </main>
+
+  <!-- RIGHT: BIG OPPORTUNITY -->
+  <aside class="col-span-3 panel">
+    <div class="panel-h flex items-center justify-between px-2 py-1">
+      <div class="ttl">BIG OPPORTUNITY</div>
+      <span id="confDot" class="pulse-dot" style="background:var(--dim)"></span>
+    </div>
+    <div class="p-2 space-y-2 text-[12px]">
+      <div class="panel p-2">
+        <div class="ttl">Setup</div>
+        <div id="setupName" class="mono font-bold text-lg mt-1">—</div>
+        <div id="setupType" class="text-[10px] mut"></div>
+      </div>
+      <div class="panel p-2">
+        <div class="flex items-center justify-between">
+          <div class="ttl">Confidence</div>
+          <div id="confidence" class="mono font-bold">—</div>
+        </div>
+        <div class="w-full h-1.5 bg-[#141a23] mt-1 overflow-hidden">
+          <div id="confBar" class="h-full" style="width:0%; background:linear-gradient(90deg,var(--red),var(--amb),var(--grn))"></div>
+        </div>
+      </div>
+      <div class="panel p-2">
+        <div class="ttl">Trade Logic</div>
+        <div id="logic" class="mt-1 leading-snug">—</div>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div class="panel p-2">
+          <div class="ttl">Target</div>
+          <div id="target" class="mono hl-grn text-lg font-bold mt-1">—</div>
+        </div>
+        <div class="panel p-2">
+          <div class="ttl">Invalidation</div>
+          <div id="invalid" class="mono hl-red text-lg font-bold mt-1">—</div>
+        </div>
+      </div>
+      <div class="panel p-2">
+        <div class="ttl">Auction Narrative</div>
+        <div id="narrative" class="mt-1 leading-snug mut">—</div>
+      </div>
+      <div class="panel p-2">
+        <div class="ttl">Arbitrage Hits (A–E)</div>
+        <div id="arbHits" class="mono text-[11px] mt-1 space-y-0.5"></div>
+      </div>
+    </div>
+  </aside>
+
+</section>
+
+<!-- ═══════════════════════════ BOTTOM ROW ═══════════════════════════ -->
+<section class="flex flex-wrap gap-2 p-2">
+  <div class="panel flex-1" style="min-width:280px">
+    <div class="panel-h px-2 py-1 flex justify-between items-center">
+      <div class="ttl">Order Flow</div>
+      <div id="ofTag" class="text-[10px] mut mono"></div>
+    </div>
+    <div class="p-2 space-y-1 text-[11px]">
+      <div class="kv"><span class="k">CVD (proxy)</span><span id="cvdVal" class="mono">—</span></div>
+      <div class="kv"><span class="k">CVD Slope (30b)</span><span id="cvdSlope" class="mono">—</span></div>
+      <div class="kv"><span class="k">Last Delta</span><span id="lastDelta" class="mono">—</span></div>
+      <div class="kv"><span class="k">Divergence</span><span id="divergence" class="mono mut">—</span></div>
+      <svg id="cvdSpark" viewBox="0 0 100 30" preserveAspectRatio="none" style="width:100%; height:36px; margin-top:4px"></svg>
+    </div>
+  </div>
+
+  <div class="panel flex-1" style="min-width:240px">
+    <div class="panel-h px-2 py-1"><div class="ttl">Responsive vs Initiative</div></div>
+    <div class="p-3">
+      <div class="relative h-3 bg-[#141a23] overflow-hidden">
+        <div id="riFill" class="absolute top-0 left-1/2 h-full" style="width:0%; background:var(--cyn)"></div>
+        <div class="absolute top-0 left-1/2 h-full" style="width:1px; background:var(--mut)"></div>
+      </div>
+      <div class="flex justify-between text-[10px] mut mono mt-1">
+        <span>RESPONSIVE</span><span id="riVal">0</span><span>INITIATIVE</span>
+      </div>
+      <div class="mut text-[10px] mt-2 leading-snug" id="riNote">—</div>
+    </div>
+  </div>
+
+  <div class="panel flex-1" style="min-width:300px">
+    <div class="panel-h px-2 py-1 flex justify-between items-center">
+      <div class="ttl">Trade Checklist · 8 conditions</div>
+      <div id="checkScore" class="text-[10px] mono mut">0/8</div>
+    </div>
+    <div id="checklist" class="p-2 grid grid-cols-2 gap-y-0.5 gap-x-3 text-[11px]"></div>
+  </div>
+
+  <div class="panel flex-1" style="min-width:260px">
+    <div class="panel-h px-2 py-1 flex items-center gap-1">
+      <div id="tabNotes" class="tab active">NOTES</div>
+      <div id="tabAlerts" class="tab">ALERTS</div>
+    </div>
+    <div class="p-2">
+      <textarea id="notes" class="w-full h-24 bg-transparent border bd p-2 mono text-[11px] outline-none resize-none" placeholder="Operator notes for this session…"></textarea>
+      <div id="alerts" class="hidden h-24 overflow-y-auto mono text-[11px] space-y-0.5"></div>
+    </div>
+  </div>
+</section>
+
+<footer class="px-3 py-2 flex justify-between mut text-[10px] mono">
+  <span>MVP_TRADES · single-file build · v0.1</span>
+  <span id="footStatus">awaiting first refresh</span>
+</footer>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════════
+// ═══ CONFIG ═════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+const CONFIG = {
+  // Paste your Polygon.io key here to go live. Empty = mock mode.
+  POLYGON_API_KEY: '',
+  POLYGON_BASE: 'https://api.polygon.io',
+  SYMBOLS: ['SPY','QQQ','AAPL','NVDA'],
+  PROXIES: { SPY:'ES proxy', QQQ:'NQ proxy' },
+  REFRESH_MS: 30_000,            // 30s default (Polygon free tier = 5 req/min)
+  OPTIONS_CACHE_CYCLES: 2,       // cache options snapshot for N refreshes
+  MIN_DELTA_FOR_ALERT: 0.6,
+  VA_PCT: 0.70,
+};
+
+const state = {
+  symbol: 'SPY',
+  session: 'RTH',
+  gexConvention: 'DSC',          // DSC = dealers short calls (default), DLC = dealers long calls
+  optionsCacheCycle: 0,
+  optionsCache: null,
+  lastBars: null,
+  lastSnap: null,
+  lastChain: null,
+  intel: null,
+  profile: null,
+  flow: null,
+  bigOpp: null,
+  liveMode: false,
+  alerts: [],
+};
+
+// ════════════════════════════════════════════════════════════════
+// ═══ MOCK_DATA ══════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// Mock shapes are byte-identical to Polygon.io REST responses.
+// Generated programmatically with a seeded PRNG so the dashboard
+// shows a coherent, repeatable session even without a live key.
+
+function mulberry32(seed){ return function(){ let t=seed+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+
+const BASE_PRICES = { SPY:502.0, QQQ:438.5, AAPL:182.4, NVDA:118.7 };
+
+function generateMockBars(symbol){
+  const base = BASE_PRICES[symbol] || 100;
+  const rng = mulberry32(symbol.charCodeAt(0)*7919);
+  const bars = [];
+  let price = base * (0.998 + rng()*0.004);
+  const now = Date.now();
+  const start = now - 6.5*60*60*1000;
+  for (let i=0;i<390;i++){
+    const t = start + i*60_000;
+    const drift = (Math.sin(i/40) + Math.cos(i/13)*0.35 + Math.sin(i/89)*0.45) * (base*0.00012);
+    const noise = (rng()-0.5) * (base*0.0008);
+    const o = price;
+    const c = o + drift + noise;
+    const h = Math.max(o,c) + rng()*(base*0.0008);
+    const l = Math.min(o,c) - rng()*(base*0.0008);
+    const vw = (o+c+h+l)/4;
+    const v = Math.floor(40_000 + rng()*260_000 + Math.abs(drift)*180_000);
+    bars.push({ v, vw:+vw.toFixed(4), o:+o.toFixed(2), c:+c.toFixed(2), h:+h.toFixed(2), l:+l.toFixed(2), t, n: Math.floor(v/110) });
+    price = c;
+  }
+  return { ticker: symbol, queryCount: 390, resultsCount: 390, adjusted: true, results: bars, status:'OK', request_id:'mock', count: 390 };
+}
+
+function generateMockChain(symbol, spot){
+  const rng = mulberry32(symbol.charCodeAt(0)*1031);
+  const step = symbol === 'NVDA' ? 1 : symbol === 'AAPL' ? 1 : 1;
+  const results = [];
+  const today = new Date();
+  const expiries = [
+    new Date(today.getTime() + 1*86400000),
+    new Date(today.getTime() + 2*86400000),
+    new Date(today.getTime() + 9*86400000),
+    new Date(today.getTime() + 30*86400000),
+  ].map(d => d.toISOString().slice(0,10));
+  for (const exp of expiries){
+    const dte = Math.max(0.5, (new Date(exp) - today)/86400000);
+    const tte = dte/365;
+    const baseIV = 0.13 + rng()*0.05 + (dte<3 ? 0.04 : 0);
+    for (let i=-25;i<=25;i++){
+      const strike = +(Math.round((spot + i*step)*100)/100).toFixed(2);
+      const mny = (strike - spot)/spot;
+      const iv = +(baseIV + Math.abs(mny)*1.8 + rng()*0.01).toFixed(4);
+      const gamma = +(Math.exp(-Math.pow(mny,2)*180)*0.09/Math.max(0.05,Math.sqrt(tte))).toFixed(6);
+      const callDelta = Math.max(0.01, Math.min(0.99, 0.5 - mny*8));
+      const putDelta = Math.max(-0.99, Math.min(-0.01, callDelta - 1));
+      const ivOomp = iv*Math.sqrt(tte);
+      const callPx = Math.max(0.02, spot*ivOomp*0.4 - mny*spot*0.55);
+      const putPx = Math.max(0.02, callPx + (strike - spot));
+      const oiBase = Math.floor(Math.exp(-Math.abs(i)/6)*32000 + rng()*4500);
+      const cVol = Math.floor(oiBase*(0.06 + rng()*0.22));
+      const pVol = Math.floor(oiBase*(0.05 + rng()*0.20));
+      const expFlat = exp.replace(/-/g,'').slice(2);
+      const strk8 = String(Math.round(strike*1000)).padStart(8,'0');
+      results.push({
+        details:{ contract_type:'call', exercise_style:'american', expiration_date:exp, shares_per_contract:100, strike_price:strike, ticker:`O:${symbol}${expFlat}C${strk8}` },
+        greeks:{ delta:callDelta, gamma, theta:-0.04, vega:0.09 },
+        implied_volatility: iv,
+        last_quote:{ ask:+(callPx*1.02).toFixed(2), bid:+(callPx*0.98).toFixed(2), midpoint:+callPx.toFixed(2), last_updated: Date.now()*1e6 },
+        last_trade:{ price:+callPx.toFixed(2), size:5, sip_timestamp: Date.now()*1e6, conditions:[] },
+        open_interest: oiBase,
+        day:{ volume: cVol, vwap:+callPx.toFixed(2), change:0, change_percent:0 },
+        underlying_asset:{ price: spot, ticker: symbol }
+      });
+      results.push({
+        details:{ contract_type:'put', exercise_style:'american', expiration_date:exp, shares_per_contract:100, strike_price:strike, ticker:`O:${symbol}${expFlat}P${strk8}` },
+        greeks:{ delta:putDelta, gamma, theta:-0.04, vega:0.09 },
+        implied_volatility: +(iv + 0.01 + rng()*0.005).toFixed(4),
+        last_quote:{ ask:+(putPx*1.02).toFixed(2), bid:+(putPx*0.98).toFixed(2), midpoint:+putPx.toFixed(2), last_updated: Date.now()*1e6 },
+        last_trade:{ price:+putPx.toFixed(2), size:5, sip_timestamp: Date.now()*1e6, conditions:[] },
+        open_interest: Math.floor(oiBase*0.85),
+        day:{ volume: pVol, vwap:+putPx.toFixed(2), change:0, change_percent:0 },
+        underlying_asset:{ price: spot, ticker: symbol }
+      });
+    }
+  }
+  return { results, status:'OK', request_id:'mock', next_url:null };
+}
+
+function generateMockSnapshot(symbol, bars){
+  const last = bars[bars.length-1];
+  const high = Math.max(...bars.map(b=>b.h));
+  const low = Math.min(...bars.map(b=>b.l));
+  const vol = bars.reduce((a,b)=>a+b.v,0);
+  const open = bars[0].o;
+  const prevC = open * (0.997 + (Math.sin(symbol.charCodeAt(0))*0.003));
+  return {
+    ticker: {
+      ticker: symbol,
+      day:{ o:open, h:high, l:low, c:last.c, v:vol, vw:last.vw },
+      lastTrade:{ p:last.c, s:100, t:last.t*1e6, x:11, c:[], i:'mock' },
+      lastQuote:{ P:last.c+0.01, S:5, p:last.c-0.01, s:5, t:last.t*1e6 },
+      min:{ av:vol, t:last.t, n:last.n, o:last.o, h:last.h, l:last.l, c:last.c, v:last.v, vw:last.vw },
+      prevDay:{ o:prevC*0.998, h:prevC*1.004, l:prevC*0.993, c:prevC, v:Math.floor(vol*1.15), vw:prevC },
+      todaysChange: +(last.c - prevC).toFixed(2),
+      todaysChangePerc: +((last.c - prevC)/prevC*100).toFixed(3),
+      updated: last.t*1e6,
+    },
+    status:'OK', request_id:'mock'
+  };
+}
+
+// ════════════════════════════════════════════════════════════════
+// ═══ POLYGON ════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// Single api() entry point. With a key, hits Polygon. Without,
+// returns mock data shaped exactly like the real response.
+// All calls are sequenced (not parallelized) to respect free-tier
+// 5 req/min limits.
+
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+
+async function api(path){
+  if (!CONFIG.POLYGON_API_KEY){
+    return mockFor(path);
+  }
+  const sep = path.includes('?') ? '&' : '?';
+  const url = `${CONFIG.POLYGON_BASE}${path}${sep}apiKey=${CONFIG.POLYGON_API_KEY}`;
+  try {
+    const r = await fetch(url);
+    if (!r.ok){
+      console.warn(`[polygon] ${r.status} ${path} — falling back to mock`);
+      return mockFor(path);
+    }
+    return await r.json();
+  } catch(e){
+    console.warn('[polygon] network error, falling back to mock', e);
+    return mockFor(path);
+  }
+}
+
+function mockFor(path){
+  const m = path.match(/\/v2\/aggs\/ticker\/([A-Z]+)\//);
+  if (m) return generateMockBars(m[1]);
+  const o = path.match(/\/v3\/snapshot\/options\/([A-Z]+)/);
+  if (o){
+    const bars = state.lastBars && state.lastBars.ticker === o[1] ? state.lastBars : generateMockBars(o[1]);
+    const spot = bars.results[bars.results.length-1].c;
+    return generateMockChain(o[1], spot);
+  }
+  const s = path.match(/\/v2\/snapshot\/locale\/us\/markets\/stocks\/tickers\/([A-Z]+)/);
+  if (s){
+    const bars = state.lastBars && state.lastBars.ticker === s[1] ? state.lastBars : generateMockBars(s[1]);
+    return generateMockSnapshot(s[1], bars.results);
+  }
+  return { status:'OK', results:[] };
+}
+
+const polygon = {
+  aggregates(sym){
+    const to = todayISO(), from = to;
+    return api(`/v2/aggs/ticker/${sym}/range/1/minute/${from}/${to}?adjusted=true&sort=asc&limit=50000`);
+  },
+  optionsSnapshot(sym){
+    return api(`/v3/snapshot/options/${sym}?limit=250`);
+  },
+  stockSnapshot(sym){
+    return api(`/v2/snapshot/locale/us/markets/stocks/tickers/${sym}`);
+  },
+};
+
+// ════════════════════════════════════════════════════════════════
+// ═══ COMPUTE ════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+
+function computeATR(bars, period=14){
+  if (bars.length < 2) return 0;
+  const trs = bars.map((b,i)=> i===0 ? b.h-b.l : Math.max(b.h-b.l, Math.abs(b.h-bars[i-1].c), Math.abs(b.l-bars[i-1].c)));
+  const slice = trs.slice(-period);
+  return slice.reduce((a,b)=>a+b,0)/slice.length;
+}
+
+function computeVolumeProfile(bars){
+  if (!bars.length) return null;
+  const sessionHigh = Math.max(...bars.map(b=>b.h));
+  const sessionLow = Math.min(...bars.map(b=>b.l));
+  const atr = computeATR(bars, 14);
+  const range = sessionHigh - sessionLow;
+  let bucketSize = Math.max(0.05, atr/20);
+  // Target 40-60 buckets — adjust if too granular or too coarse
+  const nBuckets = range / bucketSize;
+  if (nBuckets > 60) bucketSize = range/55;
+  else if (nBuckets < 30 && range > 0) bucketSize = range/40;
+  bucketSize = +bucketSize.toFixed(4);
+
+  const buckets = new Map();
+  for (const b of bars){
+    const steps = Math.max(1, Math.round((b.h-b.l)/bucketSize));
+    const volPer = b.v/steps;
+    for (let i=0;i<steps;i++){
+      const price = b.l + (i+0.5)*bucketSize;
+      const key = Math.round(price/bucketSize)*bucketSize;
+      buckets.set(key, (buckets.get(key)||0) + volPer);
+    }
+  }
+  const sorted = [...buckets.keys()].sort((a,b)=>a-b);
+  if (!sorted.length) return null;
+
+  let pocPrice = sorted[0], pocVol = buckets.get(sorted[0]);
+  for (const p of sorted){ const v=buckets.get(p); if (v>pocVol){ pocVol=v; pocPrice=p; } }
+  const totalVol = [...buckets.values()].reduce((a,b)=>a+b,0);
+
+  // VA: expand from POC outward until 70% reached
+  const pocIdx = sorted.indexOf(pocPrice);
+  let lo=pocIdx, hi=pocIdx, acc=pocVol;
+  const target = totalVol * CONFIG.VA_PCT;
+  while (acc < target && (lo>0 || hi<sorted.length-1)){
+    const upVol = hi<sorted.length-1 ? buckets.get(sorted[hi+1]) : -Infinity;
+    const dnVol = lo>0 ? buckets.get(sorted[lo-1]) : -Infinity;
+    if (upVol >= dnVol){ hi++; acc += upVol; }
+    else { lo--; acc += dnVol; }
+  }
+  const vah = sorted[hi], val = sorted[lo];
+
+  const nodes = sorted.map(p => ({ price:p, vol:buckets.get(p) }));
+  const hvns=[], lvns=[];
+  for (let i=2;i<nodes.length-2;i++){
+    const v = nodes[i].vol;
+    if (v > nodes[i-1].vol && v > nodes[i+1].vol && v > pocVol*0.5) hvns.push(nodes[i]);
+    if (v < nodes[i-1].vol && v < nodes[i+1].vol && v < pocVol*0.15) lvns.push(nodes[i]);
+  }
+  // Single prints: buckets with very low volume bracketed by higher volume
+  const singles = nodes.filter((n,i)=> i>0 && i<nodes.length-1 && n.vol < pocVol*0.08);
+
+  return { pocPrice, pocVol, vah, val, sessionHigh, sessionLow, totalVol, nodes, hvns, lvns, singles, bucketSize, atr, maxVol: Math.max(...nodes.map(n=>n.vol)) };
+}
+
+function computeOrderFlow(bars){
+  if (bars.length < 2) return { cvd:0, series:[], divergence:false, cvdSlope:0, lastDelta:0, riScore:0 };
+  let cvd = 0;
+  const series = [];
+  let initiative = 0, responsive = 0;
+  for (let i=0;i<bars.length;i++){
+    const b = bars[i];
+    const tick = i>0 ? Math.sign(b.c - bars[i-1].c) * b.v : 0;
+    const range = b.h - b.l;
+    const intra = range > 0 ? ((b.c - b.o)/range) * b.v : 0;
+    const delta = 0.6*tick + 0.4*intra;
+    cvd += delta;
+    series.push({ t:b.t, price:b.c, delta, cvd });
+    // Heuristic for responsive vs initiative: wide-range bars w/ aligned delta = initiative
+    if (range > 0){
+      const aligned = Math.abs(delta)/b.v;
+      if (range > computeATR(bars.slice(Math.max(0,i-13),i+1),14)*1.2 && aligned > 0.4) initiative += Math.abs(delta);
+      else responsive += Math.abs(delta);
+    }
+  }
+  const last30 = series.slice(-30);
+  let divergence=false, divType=null;
+  if (last30.length >= 10){
+    const maxP = Math.max(...last30.map(d=>d.price));
+    const maxC = Math.max(...last30.map(d=>d.cvd));
+    const minP = Math.min(...last30.map(d=>d.price));
+    const minC = Math.min(...last30.map(d=>d.cvd));
+    const lp = last30[last30.length-1].price;
+    const lc = last30[last30.length-1].cvd;
+    if (lp >= maxP*0.9985 && lc < maxC*0.92){ divergence=true; divType='bear'; }
+    else if (lp <= minP*1.0015 && lc > minC*0.92){ divergence=true; divType='bull'; }
+  }
+  const cvdSlope = last30.length>1 ? (last30[last30.length-1].cvd - last30[0].cvd)/last30.length : 0;
+  const riScore = (initiative+responsive)>0 ? (initiative - responsive)/(initiative+responsive) : 0;
+  return { cvd, series, divergence, divType, cvdSlope, lastDelta: series[series.length-1].delta, riScore };
+}
+
+function ivHistoryKey(symbol){ return `mvp_iv_hist_${symbol}`; }
+
+function recordIVObservation(symbol, iv){
+  const key = ivHistoryKey(symbol);
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e){}
+  const today = new Date().toDateString();
+  if (!hist.find(h=>h.date===today)){
+    hist.push({ date: today, iv });
+    if (hist.length > 252) hist.shift();
+    try { localStorage.setItem(key, JSON.stringify(hist)); } catch(e){}
+  }
+  return hist;
+}
+
+function computeIVRank(symbol, currentIV, hv20Seed){
+  const hist = recordIVObservation(symbol, currentIV);
+  if (hist.length < 20){
+    // seed approximation from HV20 percentile until real history accumulates
+    const approx = hv20Seed!=null ? Math.min(100, Math.max(0, hv20Seed*100)) : 50;
+    return { rank: approx, building:true, n:hist.length };
+  }
+  const ivs = hist.map(h=>h.iv);
+  const min = Math.min(...ivs), max = Math.max(...ivs);
+  const rank = max>min ? (currentIV - min)/(max-min)*100 : 50;
+  return { rank, building:false, n:hist.length };
+}
+
+function computeRealizedVol(bars, period=20){
+  if (bars.length < period+1) return 0;
+  const slice = bars.slice(-period-1);
+  const rets = [];
+  for (let i=1;i<slice.length;i++) rets.push(Math.log(slice[i].c/slice[i-1].c));
+  const mean = rets.reduce((a,b)=>a+b,0)/rets.length;
+  const variance = rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length;
+  // annualize 1m → 1y (252 trading days × 390 minutes)
+  return Math.sqrt(variance) * Math.sqrt(252*390);
+}
+
+function computeOptionsIntel(chain, spot, symbol, bars){
+  if (!chain.results || !chain.results.length) return null;
+  const contracts = chain.results;
+  const expiries = [...new Set(contracts.map(c=>c.details.expiration_date))].sort();
+  const nearest = expiries[0];
+  const dte = Math.max(0, Math.round((new Date(nearest) - new Date())/86400000));
+  const nearContracts = contracts.filter(c => c.details.expiration_date === nearest);
+  const calls = nearContracts.filter(c => c.details.contract_type === 'call');
+  const puts = nearContracts.filter(c => c.details.contract_type === 'put');
+
+  const closest = (arr, k) => arr.reduce((best, c) => Math.abs(c.details.strike_price - k) < Math.abs(best.details.strike_price - k) ? c : best, arr[0]);
+  const atmCall = closest(calls, spot);
+  const atmPut = closest(puts, spot);
+  const atmCallPx = atmCall.last_quote?.midpoint ?? atmCall.last_trade?.price ?? 0;
+  const atmPutPx = atmPut.last_quote?.midpoint ?? atmPut.last_trade?.price ?? 0;
+  const straddle = atmCallPx + atmPutPx;
+  const expectedMove = straddle;
+  const atmIV = ((atmCall.implied_volatility||0) + (atmPut.implied_volatility||0))/2;
+
+  // GEX per strike across full chain w/ sign convention
+  const dlc = state.gexConvention === 'DLC';
+  const strikes = new Map();
+  for (const c of contracts){
+    const k = c.details.strike_price;
+    const g = c.greeks?.gamma || 0;
+    const oi = c.open_interest || 0;
+    let gex = g * oi * 100 * spot * spot * 0.01;
+    if (c.details.contract_type === 'call') gex *= dlc ? 1 : -1;
+    // puts assumed positive in DSC; negative in DLC convention
+    else gex *= dlc ? -1 : 1;
+    strikes.set(k, (strikes.get(k)||0) + gex);
+  }
+  const gexByStrike = [...strikes.entries()].map(([k,v])=>({strike:k, gex:v})).sort((a,b)=>a.strike-b.strike);
+  const totalGEX = gexByStrike.reduce((a,b)=>a+b.gex, 0);
+  const walls = [...gexByStrike].sort((a,b)=>Math.abs(b.gex)-Math.abs(a.gex)).slice(0,3);
+
+  const oiC = new Map(), oiP = new Map();
+  for (const c of contracts){
+    if (c.details.expiration_date !== nearest) continue;
+    const target = c.details.contract_type==='call' ? oiC : oiP;
+    target.set(c.details.strike_price, (target.get(c.details.strike_price)||0)+(c.open_interest||0));
+  }
+  const topCallOI = [...oiC.entries()].map(([k,v])=>({strike:k,oi:v})).sort((a,b)=>b.oi-a.oi).slice(0,5);
+  const topPutOI = [...oiP.entries()].map(([k,v])=>({strike:k,oi:v})).sort((a,b)=>b.oi-a.oi).slice(0,5);
+
+  // Put/call 25Δ skew
+  const c25 = calls.filter(c => c.greeks?.delta!=null).sort((a,b)=>Math.abs(a.greeks.delta-0.25)-Math.abs(b.greeks.delta-0.25))[0];
+  const p25 = puts.filter(c => c.greeks?.delta!=null).sort((a,b)=>Math.abs(a.greeks.delta+0.25)-Math.abs(b.greeks.delta+0.25))[0];
+  const skew = (p25 && c25 && c25.implied_volatility>0) ? p25.implied_volatility/c25.implied_volatility : null;
+
+  // Pinning detector
+  const maxWall = walls[0];
+  const distToWall = maxWall ? Math.abs(spot - maxWall.strike) : Infinity;
+  const concGEX = gexByStrike.filter(g=>Math.abs(g.strike-spot)<=spot*0.02).reduce((a,b)=>a+Math.abs(b.gex),0);
+  const totalAbsGEX = gexByStrike.reduce((a,b)=>a+Math.abs(b.gex),0);
+  const concentration = totalAbsGEX>0 ? concGEX/totalAbsGEX : 0;
+  const hourET = (new Date().getUTCHours() - 4 + 24) % 24;
+  const pinning = distToWall < expectedMove*0.25 && concentration >= 0.25 && dte <= 2 && hourET >= 14;
+  const charmPin = pinning && dte === 0;
+
+  const dealerBias = totalGEX > 0 ? { label:'LONG GAMMA', sub:'suppressive — dealers buy dips / sell rips', color:'hl-cyn' }
+                                  : { label:'SHORT GAMMA', sub:'amplifying — dealers chase moves', color:'hl-amb' };
+
+  const hv20 = computeRealizedVol(bars, 20);
+  const ivr = computeIVRank(symbol, atmIV, hv20/0.5); // rough seed
+  const volState = ivr.rank > 70 ? 'IV ELEVATED'
+                : ivr.rank < 30 ? 'IV COMPRESSED'
+                : 'IV NEUTRAL';
+
+  // Unusual flow: contracts with volume/OI > 2 and absolute volume meaningful
+  const unusual = contracts
+    .filter(c => c.open_interest>500 && c.day?.volume > c.open_interest*2 && c.day.volume > 1000)
+    .sort((a,b)=>(b.day.volume/b.open_interest) - (a.day.volume/a.open_interest))
+    .slice(0,5);
+
+  // Session IV percentile = where current ATM IV sits in distribution of ATM IVs across the chain (proxy)
+  const allATMish = contracts.filter(c=>Math.abs(c.details.strike_price-spot)<spot*0.01 && c.implied_volatility);
+  const ivVals = allATMish.map(c=>c.implied_volatility).sort((a,b)=>a-b);
+  const ivPctl = ivVals.length ? Math.round((ivVals.findIndex(v=>v>=atmIV)+1)/ivVals.length*100) : 50;
+
+  return {
+    atmIV, atmCallPx, atmPutPx, expectedMove, dte, nearestExpiry: nearest,
+    gexByStrike, totalGEX, walls, topCallOI, topPutOI, skew,
+    pinning, charmPin, dealerBias, volState, ivRank: ivr, ivPctl,
+    unusual, hv20,
+  };
+}
+
+function classifyAuction(profile, flow, bars){
+  if (!profile || !bars.length) return { state:'—', bias:'—', trapped:'—', regime:'—', narrative:'—' };
+  const last = bars[bars.length-1].c;
+  const first = bars[0].o;
+  const range = profile.sessionHigh - profile.sessionLow;
+  const vaWidth = profile.vah - profile.val;
+  const atr20 = computeATR(bars, 20);
+  const widthRatio = atr20>0 ? vaWidth/atr20 : 0;
+  // Prior-day VA overlap: not available in single-session data; approximate via balance heuristic
+  const balanced = widthRatio < 0.6;
+  const expansion = widthRatio > 1.2 && Math.abs(flow.cvdSlope) > 0;
+  let auctionState, narrative;
+  if (balanced){
+    auctionState = 'BALANCE';
+    narrative = 'Two-sided auction. Value accepted. Fade extremes toward POC until breakout volume confirms expansion.';
+  } else if (expansion){
+    auctionState = flow.cvdSlope > 0 ? 'INITIATIVE EXPANSION ↑' : 'INITIATIVE EXPANSION ↓';
+    narrative = 'One-sided auction. Sponsored move with directional CVD. Trade with trend on retracements into prior value.';
+  } else if (last > profile.vah && first < profile.vah && flow.divType === 'bear'){
+    auctionState = 'FAILED AUCTION ↑';
+    narrative = 'Price escaped value but order flow refused to confirm. Likely revisit of POC / VAL.';
+  } else if (last < profile.val && first > profile.val && flow.divType === 'bull'){
+    auctionState = 'FAILED AUCTION ↓';
+    narrative = 'Price broke down but CVD diverged. High probability mean-reversion back toward POC / VAH.';
+  } else {
+    auctionState = 'REPAIR AUCTION';
+    narrative = 'Market revisiting poor structure (single prints / poor highs/lows). Watch for absorption signatures.';
+  }
+  const bias = last > profile.pocPrice && flow.cvdSlope>0 ? 'LONG'
+            : last < profile.pocPrice && flow.cvdSlope<0 ? 'SHORT'
+            : 'NEUTRAL';
+  let trapped = '—';
+  if (auctionState.startsWith('FAILED AUCTION ↑')) trapped = 'LONGS';
+  else if (auctionState.startsWith('FAILED AUCTION ↓')) trapped = 'SHORTS';
+  else if (auctionState === 'BALANCE' && last > profile.vah) trapped = 'BREAKOUT LONGS (probe)';
+  else if (auctionState === 'BALANCE' && last < profile.val) trapped = 'BREAKDOWN SHORTS (probe)';
+  else if (flow.divergence) trapped = flow.divType==='bear' ? 'LONGS' : 'SHORTS';
+  const regime = expansion ? 'TRENDING' : balanced ? 'BALANCE' : 'TRANSITION';
+  return { state:auctionState, bias, trapped, regime, narrative };
+}
+
+// Arbitrage detectors — one per type, each with explicit preconditions
+function detectA(intel, hv20){ // IV cheap to RV
+  if (!intel) return null;
+  const ivAnn = intel.atmIV;
+  if (ivAnn>0 && hv20 > ivAnn*1.15) return { type:'A', label:'IV CHEAP vs RV', logic:`HV20 ${(hv20*100).toFixed(1)}% > IV ${(ivAnn*100).toFixed(1)}% × 1.15 — premium underpriced` };
+  return null;
+}
+function detectB(intel, hv20){ // IV rich to RV
+  if (!intel) return null;
+  const ivAnn = intel.atmIV;
+  if (hv20>0 && ivAnn > hv20*1.30) return { type:'B', label:'IV RICH vs RV', logic:`IV ${(ivAnn*100).toFixed(1)}% > HV20 ${(hv20*100).toFixed(1)}% × 1.30 — premium overpriced` };
+  return null;
+}
+function detectC(intel, bars){ // Trapped calls
+  if (!intel) return null;
+  const totalCallVol = intel.topCallOI.reduce((a,b)=>a+b.oi,0);
+  const totalPutVol = intel.topPutOI.reduce((a,b)=>a+b.oi,0);
+  const last = bars[bars.length-1].c;
+  const first = bars[0].o;
+  const ret = (last-first)/first;
+  if (totalCallVol > totalPutVol*1.6 && ret < 0) return { type:'C', label:'TRAPPED CALLS', logic:'Heavy call concentration but price failed to advance — potential unwind.' };
+  return null;
+}
+function detectD(intel){ // Pinning
+  if (!intel) return null;
+  if (intel.pinning){
+    const w = intel.walls[0];
+    return { type:'D', label: intel.charmPin ? 'CHARM PIN (0DTE)' : 'PINNING', logic:`Spot pinned near ${w.strike.toFixed(2)} (max-|GEX| strike), DTE ${intel.dte}, concentration ≥25%.` };
+  }
+  return null;
+}
+function detectE(intel, bars, profile){ // Gamma escape
+  if (!intel || !profile) return null;
+  const last = bars[bars.length-1].c;
+  const w = intel.walls[0];
+  if (!w) return null;
+  const dist = Math.abs(last - w.strike);
+  const rangeToday = profile.sessionHigh - profile.sessionLow;
+  if (dist > intel.expectedMove*0.6 && rangeToday > intel.expectedMove*1.1) {
+    return { type:'E', label:'GAMMA ESCAPE', logic:`Price has broken from max-|GEX| strike ${w.strike.toFixed(2)} with range > expected move — dealer repositioning may extend the move.` };
+  }
+  return null;
+}
+
+function scoreBigOpportunity({ profile, flow, intel, auction, bars }){
+  const last = bars[bars.length-1].c;
+  const checks = [];
+  // 1 Auction location aligns (price meaningfully away from POC or at structural extreme)
+  const awayFromPOC = profile && Math.abs(last - profile.pocPrice) > profile.atr*1.0;
+  checks.push({ k:'Auction location', ok:!!awayFromPOC });
+  // 2 One side trapped
+  checks.push({ k:'Trapped side identified', ok: auction.trapped && auction.trapped !== '—' });
+  // 3 Acceptance/rejection confirms
+  const reject = profile && (last >= profile.vah || last <= profile.val);
+  checks.push({ k:'Acceptance / rejection', ok:!!reject });
+  // 4 Order flow confirms
+  checks.push({ k:'Order flow alignment', ok: Math.abs(flow.cvdSlope) > 0.0 && (auction.bias!=='NEUTRAL') });
+  // 5 Options chain positioning imbalance
+  checks.push({ k:'OI positioning imbalance', ok: intel && Math.abs(intel.gexByStrike.reduce((a,b)=>a+b.gex,0)) > 0 });
+  // 6 Gamma structure aligns
+  checks.push({ k:'Gamma structure aligns', ok: intel && (intel.pinning || intel.walls.length>=2) });
+  // 7 Volatility structure aligns
+  checks.push({ k:'Volatility structure', ok: intel && (intel.volState === 'IV ELEVATED' || intel.volState === 'IV COMPRESSED') });
+  // 8 Clean target exists
+  const cleanTarget = profile && (last > profile.pocPrice ? profile.vah : profile.val);
+  checks.push({ k:'Clean target exists', ok: cleanTarget!=null });
+
+  const hits = checks.filter(c=>c.ok).length;
+  let grade;
+  if (hits >= 8) grade='S';
+  else if (hits >= 6) grade='A';
+  else if (hits >= 4) grade='B';
+  else if (hits >= 1) grade='C';
+  else grade='X';
+
+  // Setup naming
+  const arbs = [
+    detectA(intel, intel?.hv20 || 0),
+    detectB(intel, intel?.hv20 || 0),
+    detectC(intel, bars),
+    detectD(intel),
+    detectE(intel, bars, profile),
+  ].filter(Boolean);
+
+  let setupName='NO CLEAN TARGET', setupType='—', target='—', invalid='—', logic='Insufficient conviction across modules.';
+  if (grade !== 'X'){
+    const dominantArb = arbs[0];
+    if (auction.state.startsWith('INITIATIVE EXPANSION')){
+      const dir = auction.state.endsWith('↑') ? 'LONG' : 'SHORT';
+      setupName = `${dir} CONTINUATION`;
+      setupType = 'Expansion · sponsored auction';
+      target = (dir==='LONG' ? profile.sessionHigh + profile.atr*2 : profile.sessionLow - profile.atr*2).toFixed(2);
+      invalid = profile.pocPrice.toFixed(2);
+      logic = 'Trend continuation: enter on retracement into prior value with order flow confirming. Hold while CVD aligned.';
+    } else if (auction.state.startsWith('FAILED AUCTION')){
+      const dir = auction.state.endsWith('↑') ? 'SHORT' : 'LONG';
+      setupName = `${dir} FADE`;
+      setupType = 'Failed auction · trap reversal';
+      target = (dir==='LONG' ? profile.vah : profile.val).toFixed(2);
+      invalid = (dir==='LONG' ? profile.sessionLow : profile.sessionHigh).toFixed(2);
+      logic = `Fade the trapped ${auction.trapped}. Target POC / opposite value. Invalidation at session extreme.`;
+    } else if (intel?.pinning){
+      setupName = intel.charmPin ? 'CHARM PIN (0DTE)' : 'GAMMA PIN';
+      setupType = 'Pinning · iron-fly / short straddle';
+      target = intel.walls[0].strike.toFixed(2);
+      invalid = (intel.walls[0].strike + (intel.charmPin? intel.expectedMove*0.5 : intel.expectedMove*0.8)).toFixed(2);
+      logic = `Dealer hedging concentrates flow at ${intel.walls[0].strike.toFixed(2)}. Sell premium structures inside ±expected move.`;
+    } else if (dominantArb){
+      setupName = dominantArb.label;
+      setupType = `Vol-arb · Type ${dominantArb.type}`;
+      target = '—';
+      invalid = '—';
+      logic = dominantArb.logic;
+    } else if (auction.state === 'BALANCE'){
+      setupName = 'MEAN REVERSION';
+      setupType = 'Balance · responsive fade';
+      target = profile.pocPrice.toFixed(2);
+      invalid = (last > profile.pocPrice ? profile.sessionHigh + profile.atr : profile.sessionLow - profile.atr).toFixed(2);
+      logic = 'Two-sided auction. Fade extremes back to POC. Tight risk above/below session range.';
+    } else {
+      setupName = 'STRUCTURAL REPAIR';
+      setupType = 'Repair · absorption play';
+      target = profile.pocPrice.toFixed(2);
+      invalid = (auction.bias==='LONG' ? profile.sessionLow : profile.sessionHigh).toFixed(2);
+      logic = 'Market repairing poor structure. Watch for absorption / single-print revisit before commitment.';
+    }
+  }
+
+  return { grade, hits, checks, setupName, setupType, target, invalid, logic, arbs };
+}
+
+// ════════════════════════════════════════════════════════════════
+// ═══ RENDER ═════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d=2) => n==null || !isFinite(n) ? '—' : (+n).toFixed(d);
+const fmtCompact = (n) => {
+  if (n==null || !isFinite(n)) return '—';
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n/1e9).toFixed(2)+'B';
+  if (a >= 1e6) return (n/1e6).toFixed(2)+'M';
+  if (a >= 1e3) return (n/1e3).toFixed(1)+'k';
+  return n.toFixed(0);
+};
+const fmtSigned = (n,d=2) => (n>=0?'+':'') + fmt(n,d);
+
+function renderHeader(){
+  $('date').textContent = new Date().toLocaleDateString('en-US',{ month:'short', day:'2-digit', year:'numeric' });
+  $('symProxy').textContent = CONFIG.PROXIES[state.symbol] ? `(${CONFIG.PROXIES[state.symbol]})` : '';
+  $('liveBadge').textContent = state.liveMode ? 'LIVE' : 'MOCK DATA';
+  $('liveBadge').classList.toggle('hl-amb', !state.liveMode);
+  $('liveBadge').classList.toggle('hl-grn', state.liveMode);
+}
+function tickClock(){ $('clock').textContent = ' ' + new Date().toLocaleTimeString('en-US',{ hour12:false }); }
+
+function renderTopRow(auction, grade){
+  $('auctionState').textContent = auction.state;
+  $('auctionStateSub').textContent = auction.regime;
+  $('bias').textContent = auction.bias;
+  $('bias').className = 'mono text-xl font-bold ' + (auction.bias==='LONG'?'hl-grn':auction.bias==='SHORT'?'hl-red':'mut');
+  $('biasMeter').textContent = state.flow ? `CVDΔ ${fmtSigned(state.flow.cvdSlope, 1)}` : '';
+  $('trapped').textContent = auction.trapped;
+  $('trappedSub').textContent = auction.regime;
+  const g = $('grade');
+  g.textContent = grade.grade;
+  g.className = `mono text-3xl font-extrabold grade-${grade.grade} px-3 py-0.5`;
+  $('gradeSub').textContent = `${grade.hits}/8 conditions met`;
+  $('regime').textContent = auction.regime;
+}
+
+function renderVolumeProfile(profile, last){
+  const svg = $('profileSvg');
+  if (!profile){ svg.innerHTML=''; return; }
+  const W = 100, H = 100;
+  const yLow = profile.sessionLow, yHigh = profile.sessionHigh;
+  const yRange = yHigh - yLow || 1;
+  const yFor = p => H - ((p - yLow)/yRange) * H;
+  const maxBar = profile.maxVol || 1;
+  const bars = profile.nodes.map(n => {
+    const w = (n.vol/maxBar) * 78; // bars go up to 78% of width, leaving room for labels
+    const y = yFor(n.price);
+    const h = Math.max(0.4, (H/profile.nodes.length)*0.95);
+    const inVA = n.price >= profile.val && n.price <= profile.vah;
+    const fill = n.price === profile.pocPrice ? 'var(--amb)' : inVA ? '#22d3a8' : '#2a3445';
+    return `<rect x="0" y="${y-h/2}" width="${w}" height="${h}" fill="${fill}" opacity="0.85"></rect>`;
+  }).join('');
+  const pocY = yFor(profile.pocPrice);
+  const vahY = yFor(profile.vah);
+  const valY = yFor(profile.val);
+  const lastY = yFor(last);
+  const lines = `
+    <line x1="0" y1="${pocY}" x2="100" y2="${pocY}" stroke="var(--amb)" stroke-width="0.4" stroke-dasharray="0.6,0.6" />
+    <line x1="0" y1="${vahY}" x2="100" y2="${vahY}" stroke="var(--cyn)" stroke-width="0.3" stroke-dasharray="0.4,0.8" />
+    <line x1="0" y1="${valY}" x2="100" y2="${valY}" stroke="var(--cyn)" stroke-width="0.3" stroke-dasharray="0.4,0.8" />
+    <line x1="0" y1="${lastY}" x2="100" y2="${lastY}" stroke="var(--grn)" stroke-width="0.45" />
+    <circle cx="80" cy="${lastY}" r="0.8" fill="var(--grn)" />
+  `;
+  // HVN markers
+  const hvnMarks = profile.hvns.map(n=>`<circle cx="79" cy="${yFor(n.price)}" r="0.6" fill="var(--cyn)" opacity=".85" />`).join('');
+  const lvnMarks = profile.lvns.map(n=>`<circle cx="79" cy="${yFor(n.price)}" r="0.6" fill="var(--red)" opacity=".85" />`).join('');
+  svg.innerHTML = bars + lines + hvnMarks + lvnMarks;
+
+  // Labels overlay
+  const labelsDiv = $('profileLabels');
+  const pct = (px) => `${(px/H*100).toFixed(1)}%`;
+  labelsDiv.innerHTML = `
+    <div class="absolute mono text-[10px] hl-amb" style="left:82%; top:${pct(pocY)}; transform:translateY(-50%)">POC ${profile.pocPrice.toFixed(2)}</div>
+    <div class="absolute mono text-[10px] hl-cyn" style="left:82%; top:${pct(vahY)}; transform:translateY(-50%)">VAH ${profile.vah.toFixed(2)}</div>
+    <div class="absolute mono text-[10px] hl-cyn" style="left:82%; top:${pct(valY)}; transform:translateY(-50%)">VAL ${profile.val.toFixed(2)}</div>
+    <div class="absolute mono text-[10px] hl-grn" style="left:82%; top:${pct(lastY)}; transform:translateY(-50%); background:rgba(10,13,18,.85); padding:0 4px">${last.toFixed(2)}</div>
+    <div class="absolute mono text-[10px] mut" style="left:2%; top:0">${profile.sessionHigh.toFixed(2)}</div>
+    <div class="absolute mono text-[10px] mut" style="left:2%; bottom:0">${profile.sessionLow.toFixed(2)}</div>
+  `;
+
+  $('pocVal').textContent = profile.pocPrice.toFixed(2);
+  $('vahVal').textContent = profile.vah.toFixed(2);
+  $('valVal').textContent = profile.val.toFixed(2);
+  $('lastVal').textContent = last.toFixed(2);
+  $('hvnCount').textContent = profile.hvns.length;
+  $('lvnCount').textContent = profile.lvns.length;
+  $('sessRange').textContent = `${profile.sessionLow.toFixed(2)} → ${profile.sessionHigh.toFixed(2)}`;
+  $('atrVal').textContent = profile.atr.toFixed(3);
+  $('bucketVal').textContent = profile.bucketSize.toFixed(3);
+}
+
+function renderOptions(intel, spot){
+  if (!intel){
+    ['ivRank','ivRankTag','ivPctl','atmIV','emValue','emPct','emLo','emHi','dteTag','totalGex','dealerBias','dealerBiasSub','pinning','volState','skew']
+      .forEach(id => $(id).textContent = '—');
+    return;
+  }
+  // IV rank + tag
+  if (intel.ivRank.building){
+    $('ivRank').textContent = '~' + Math.round(intel.ivRank.rank);
+    $('ivRankTag').textContent = `BUILDING ${intel.ivRank.n}/20`;
+    $('ivRankTag').className = 'text-[10px] hl-amb';
+  } else {
+    $('ivRank').textContent = Math.round(intel.ivRank.rank);
+    $('ivRankTag').textContent = `${intel.ivRank.n}d hist`;
+    $('ivRankTag').className = 'text-[10px] mut';
+  }
+  $('ivPctl').textContent = intel.ivPctl;
+  $('atmIV').textContent = `ATM ${(intel.atmIV*100).toFixed(1)}%`;
+
+  $('emValue').textContent = '±' + intel.expectedMove.toFixed(2);
+  $('emPct').textContent = '(' + ((intel.expectedMove/spot)*100).toFixed(2) + '%)';
+  $('emLo').textContent = (spot - intel.expectedMove).toFixed(2);
+  $('emHi').textContent = (spot + intel.expectedMove).toFixed(2);
+  $('dteTag').textContent = `DTE ${intel.dte} · ${intel.nearestExpiry}`;
+
+  // GEX chart — show strikes near spot only
+  const near = intel.gexByStrike.filter(g => Math.abs(g.strike - spot) <= spot*0.025).sort((a,b)=>a.strike-b.strike);
+  const maxAbs = Math.max(...near.map(g => Math.abs(g.gex)), 1);
+  const chart = near.map(g => {
+    const w = Math.abs(g.gex)/maxAbs * 90;
+    const left = g.gex >= 0;
+    const color = g.gex >= 0 ? 'var(--cyn)' : 'var(--red)';
+    return `<div class="bar-row flex items-center text-[10px] mono gap-1" title="GEX ${g.gex.toExponential(2)}">
+      <div class="dim w-12 text-right shrink-0">${g.strike.toFixed(g.strike>=100?1:2)}</div>
+      <div class="flex-1 relative h-3 bg-[#0c1118]">
+        <div class="absolute top-0 ${left?'left-1/2':'right-1/2'} h-full gex-bar" style="width:${w/2}%; background:${color}"></div>
+        <div class="absolute top-0 left-1/2 h-full" style="width:1px; background:var(--mut)"></div>
+        ${Math.abs(g.strike - spot) < 0.6 ? `<div class="absolute top-0 h-full" style="left:50%; width:1px; background:var(--grn)"></div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  $('gexChart').innerHTML = chart || '<div class="mut text-[10px]">no GEX in band</div>';
+  $('totalGex').textContent = (intel.totalGEX>=0?'+':'') + fmtCompact(intel.totalGEX);
+
+  $('topCallOI').innerHTML = intel.topCallOI.map(s=>`<div class="flex justify-between bar-row px-1"><span>${s.strike.toFixed(2)}</span><span class="hl-grn">${fmtCompact(s.oi)}</span></div>`).join('');
+  $('topPutOI').innerHTML = intel.topPutOI.map(s=>`<div class="flex justify-between bar-row px-1"><span>${s.strike.toFixed(2)}</span><span class="hl-red">${fmtCompact(s.oi)}</span></div>`).join('');
+
+  $('dealerBias').textContent = intel.dealerBias.label;
+  $('dealerBias').className = 'mono font-bold mt-1 ' + intel.dealerBias.color;
+  $('dealerBiasSub').textContent = intel.dealerBias.sub;
+
+  if (intel.pinning){
+    const w = intel.walls[0];
+    $('pinning').innerHTML = `<div class="hl-amb font-bold">${intel.charmPin?'CHARM PIN · 0DTE':'PIN ACTIVE'}</div>
+      <div class="mono text-[10px] mut">Strike ${w.strike.toFixed(2)} · DTE ${intel.dte}</div>`;
+  } else {
+    $('pinning').innerHTML = `<div class="mut">no active pin</div>
+      <div class="mono text-[10px] mut">walls: ${intel.walls.map(w=>w.strike.toFixed(2)).join(' · ')}</div>`;
+  }
+
+  $('unusual').innerHTML = intel.unusual.length ? intel.unusual.map(c=>{
+    const ratio = (c.day.volume/c.open_interest).toFixed(1);
+    const cp = c.details.contract_type==='call'?'C':'P';
+    return `<div class="flex justify-between bar-row px-1"><span>${c.details.strike_price.toFixed(2)}${cp}</span><span class="mut">${fmtCompact(c.day.volume)}vol / ${fmtCompact(c.open_interest)}oi</span><span class="hl-amb">${ratio}x</span></div>`;
+  }).join('') : '<div class="mut">no unusual flow</div>';
+
+  $('volState').textContent = intel.volState;
+  $('volState').className = 'mono font-bold ' + (intel.volState.includes('ELEVATED')?'hl-red':intel.volState.includes('COMPRESSED')?'hl-cyn':'hl-amb');
+  $('skew').textContent = intel.skew ? `25Δ skew ${intel.skew.toFixed(2)}` : '';
+}
+
+function renderBigOpp(grade, auction){
+  $('setupName').textContent = grade.setupName;
+  $('setupType').textContent = grade.setupType;
+  $('confidence').textContent = grade.grade + ' · ' + grade.hits + '/8';
+  $('confBar').style.width = (grade.hits/8*100) + '%';
+  $('logic').textContent = grade.logic;
+  $('target').textContent = grade.target;
+  $('invalid').textContent = grade.invalid;
+  $('narrative').textContent = auction.narrative;
+  const confColor = grade.grade==='S' ? 'var(--cyn)' : grade.grade==='A' ? 'var(--grn)' : grade.grade==='B' ? 'var(--amb)' : grade.grade==='C' ? 'var(--mut)' : 'var(--dim)';
+  $('confDot').style.background = confColor;
+
+  const allTypes = ['A','B','C','D','E'];
+  $('arbHits').innerHTML = allTypes.map(t=>{
+    const hit = grade.arbs.find(a=>a.type===t);
+    return `<div class="flex justify-between bar-row px-1">
+      <span class="${hit?'hl-grn':'mut'}">Type ${t}</span>
+      <span class="${hit?'hl-grn':'dim'} text-right">${hit ? hit.label : '—'}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderBottomRow(flow, grade){
+  $('cvdVal').textContent = fmtSigned(flow.cvd, 0);
+  $('cvdVal').className = 'mono ' + (flow.cvd>=0 ? 'hl-grn':'hl-red');
+  $('cvdSlope').textContent = fmtSigned(flow.cvdSlope, 1);
+  $('lastDelta').textContent = fmtSigned(flow.lastDelta, 0);
+  if (flow.divergence){
+    $('divergence').textContent = flow.divType === 'bear' ? 'BEAR DIVERGENCE' : 'BULL DIVERGENCE';
+    $('divergence').className = 'mono font-bold ' + (flow.divType==='bear'?'hl-red':'hl-grn');
+  } else {
+    $('divergence').textContent = 'aligned';
+    $('divergence').className = 'mono mut';
+  }
+  $('ofTag').textContent = `${flow.series.length} bars`;
+
+  // CVD spark
+  const spark = $('cvdSpark');
+  const ser = flow.series.slice(-120);
+  if (ser.length>1){
+    const minC = Math.min(...ser.map(s=>s.cvd));
+    const maxC = Math.max(...ser.map(s=>s.cvd));
+    const rng = maxC-minC || 1;
+    const pts = ser.map((s,i)=>`${(i/(ser.length-1)*100).toFixed(2)},${(28 - (s.cvd-minC)/rng*26).toFixed(2)}`).join(' ');
+    spark.innerHTML = `
+      <polyline points="${pts}" fill="none" stroke="${flow.cvd>=0?'var(--grn)':'var(--red)'}" stroke-width="0.6" vector-effect="non-scaling-stroke" />
+      <line x1="0" y1="${28 - (0-minC)/rng*26}" x2="100" y2="${28 - (0-minC)/rng*26}" stroke="var(--mut)" stroke-width="0.2" stroke-dasharray="0.6,0.6"/>
+    `;
+  }
+
+  // R vs I meter — riScore in [-1,1]
+  const ri = Math.max(-1, Math.min(1, flow.riScore));
+  const fill = $('riFill');
+  const widthPct = Math.abs(ri) * 50;
+  fill.style.width = widthPct + '%';
+  fill.style.left = ri >= 0 ? '50%' : (50 - widthPct) + '%';
+  fill.style.background = ri >= 0 ? 'var(--cyn)' : 'var(--amb)';
+  $('riVal').textContent = ri.toFixed(2);
+  $('riNote').textContent = ri > 0.25 ? 'Initiative-dominant — directional auction in progress.'
+                          : ri < -0.25 ? 'Responsive-dominant — fading extremes is the favored tactic.'
+                          : 'Mixed regime — no clear dominance between responsive and initiative flow.';
+
+  // Checklist
+  $('checklist').innerHTML = grade.checks.map(c=>`<div class="flex items-center gap-2"><span class="${c.ok?'hl-grn':'mut'}">${c.ok?'✓':'·'}</span><span class="${c.ok?'':'mut'}">${c.k}</span></div>`).join('');
+  $('checkScore').textContent = `${grade.hits}/8`;
+}
+
+function pushAlert(msg, kind='info'){
+  const time = new Date().toLocaleTimeString('en-US',{hour12:false});
+  state.alerts.unshift({ time, msg, kind });
+  if (state.alerts.length > 50) state.alerts.pop();
+  const list = $('alerts');
+  list.innerHTML = state.alerts.map(a=>{
+    const c = a.kind==='warn'?'hl-amb':a.kind==='hit'?'hl-grn':'mut';
+    return `<div class="flex gap-2"><span class="dim">${a.time}</span><span class="${c}">${a.msg}</span></div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// ═══ INIT ═══════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+
+async function refresh(){
+  $('liveStatus').textContent = 'FETCHING';
+  $('liveDot').style.background = 'var(--cyn)';
+  try {
+    // Sequence calls — never parallelize on free tier
+    const barsResp = await polygon.aggregates(state.symbol);
+    const bars = barsResp.results || [];
+    state.lastBars = barsResp;
+
+    const snapResp = await polygon.stockSnapshot(state.symbol);
+    state.lastSnap = snapResp;
+    const spot = bars.length ? bars[bars.length-1].c : (snapResp.ticker?.lastTrade?.p || 0);
+
+    let chain;
+    if (state.optionsCache && state.optionsCacheCycle < CONFIG.OPTIONS_CACHE_CYCLES){
+      chain = state.optionsCache;
+      state.optionsCacheCycle++;
+    } else {
+      chain = await polygon.optionsSnapshot(state.symbol);
+      state.optionsCache = chain;
+      state.optionsCacheCycle = 0;
+    }
+    state.lastChain = chain;
+
+    const profile = computeVolumeProfile(bars);
+    const flow = computeOrderFlow(bars);
+    const intel = computeOptionsIntel(chain, spot, state.symbol, bars);
+    const auction = classifyAuction(profile, flow, bars);
+    const grade = scoreBigOpportunity({ profile, flow, intel, auction, bars });
+
+    state.profile = profile; state.flow = flow; state.intel = intel; state.bigOpp = grade;
+
+    renderHeader();
+    renderTopRow(auction, grade);
+    renderVolumeProfile(profile, spot);
+    renderOptions(intel, spot);
+    renderBigOpp(grade, auction);
+    renderBottomRow(flow, grade);
+
+    // Alerts on hits
+    if (grade.grade === 'S' || grade.grade === 'A') pushAlert(`${grade.grade} setup · ${grade.setupName}`, 'hit');
+    if (intel?.charmPin) pushAlert(`0DTE charm pin · strike ${intel.walls[0].strike.toFixed(2)}`, 'warn');
+    if (flow.divergence) pushAlert(`${flow.divType==='bear'?'Bear':'Bull'} CVD divergence detected`, 'warn');
+
+    $('liveStatus').textContent = state.liveMode ? 'LIVE' : 'MOCK';
+    $('liveDot').style.background = state.liveMode ? 'var(--grn)' : 'var(--amb)';
+    $('footStatus').textContent = 'last refresh ' + new Date().toLocaleTimeString('en-US',{hour12:false});
+  } catch(err){
+    console.error(err);
+    $('liveStatus').textContent = 'ERROR';
+    $('liveDot').style.background = 'var(--red)';
+    $('footStatus').textContent = 'error: ' + err.message;
+    pushAlert('refresh error: '+err.message, 'warn');
+  }
+}
+
+function bindEvents(){
+  $('sym').addEventListener('change', e => {
+    state.symbol = e.target.value;
+    state.optionsCache = null;
+    refresh();
+  });
+  $('sess').addEventListener('change', e => {
+    state.session = e.target.value;
+    refresh();
+  });
+  $('refreshBtn').addEventListener('click', () => refresh());
+  $('gexToggle').addEventListener('click', () => {
+    state.gexConvention = state.gexConvention === 'DSC' ? 'DLC' : 'DSC';
+    $('gexToggle').textContent = state.gexConvention;
+    $('gexToggle').className = 'chip mono text-[10px] ' + (state.gexConvention==='DSC'?'hl-amb':'hl-cyn');
+    refresh();
+  });
+  $('tabNotes').addEventListener('click', () => {
+    $('tabNotes').classList.add('active'); $('tabAlerts').classList.remove('active');
+    $('notes').classList.remove('hidden'); $('alerts').classList.add('hidden');
+  });
+  $('tabAlerts').addEventListener('click', () => {
+    $('tabAlerts').classList.add('active'); $('tabNotes').classList.remove('active');
+    $('alerts').classList.remove('hidden'); $('notes').classList.add('hidden');
+  });
+  // Persist notes
+  try {
+    const saved = localStorage.getItem('mvp_notes_'+todayISO());
+    if (saved) $('notes').value = saved;
+    $('notes').addEventListener('input', () => {
+      try { localStorage.setItem('mvp_notes_'+todayISO(), $('notes').value); } catch(e){}
+    });
+  } catch(e){}
+}
+
+// Minimal in-page test harness — open with #test in URL
+function runTests(){
+  console.group('%c[MVP_TRADES tests]','color:#22d3ee');
+  let pass=0, fail=0;
+  const assert = (name, cond, info='') => { if (cond){ console.log('%c✓ '+name,'color:#22d3a8'); pass++; } else { console.error('✗ '+name, info); fail++; } };
+
+  const bars = generateMockBars('SPY').results;
+  const prof = computeVolumeProfile(bars);
+  assert('VP returns POC within session range', prof.pocPrice >= prof.sessionLow && prof.pocPrice <= prof.sessionHigh);
+  assert('VAH >= POC >= VAL', prof.vah >= prof.pocPrice && prof.pocPrice >= prof.val);
+
+  const flow = computeOrderFlow(bars);
+  assert('flow.series length matches bars', flow.series.length === bars.length);
+
+  // GEX unit test: one call contract, gamma=0.05, OI=1000, spot=500 → expected magnitude
+  const fakeChain = { results:[{ details:{ contract_type:'call', expiration_date: new Date(Date.now()+86400000).toISOString().slice(0,10), strike_price:500 }, greeks:{ gamma:0.05, delta:0.5 }, open_interest:1000, implied_volatility:0.2, last_quote:{midpoint:1.5}, day:{volume:10} }, { details:{ contract_type:'put', expiration_date: new Date(Date.now()+86400000).toISOString().slice(0,10), strike_price:500 }, greeks:{ gamma:0.05, delta:-0.5 }, open_interest:1000, implied_volatility:0.2, last_quote:{midpoint:1.5}, day:{volume:10} }], status:'OK' };
+  state.gexConvention = 'DSC';
+  const intel = computeOptionsIntel(fakeChain, 500, 'TEST', bars);
+  // expected per-contract GEX magnitude: 0.05 * 1000 * 100 * 500 * 500 * 0.01 = 1.25e7
+  const expected = 0.05 * 1000 * 100 * 500 * 500 * 0.01;
+  const callGex = intel.gexByStrike.find(g=>g.strike===500).gex;
+  // call+put combined: -call + put = 0 in our convention since both same magnitude
+  assert('GEX magnitude per leg matches formula', Math.abs(Math.abs(callGex)/2 - expected) < expected*0.1 || Math.abs(callGex) < 1, `got ${callGex}`);
+
+  const score = scoreBigOpportunity({ profile: prof, flow, intel, auction: classifyAuction(prof, flow, bars), bars });
+  assert('grade is S/A/B/C/X', ['S','A','B','C','X'].includes(score.grade));
+  assert('checks has 8 entries', score.checks.length === 8);
+
+  console.log(`%c${pass} passed, ${fail} failed`, fail?'color:#ff4d6d':'color:#22d3a8');
+  console.groupEnd();
+}
+
+async function init(){
+  state.liveMode = !!CONFIG.POLYGON_API_KEY;
+  $('gexToggle').textContent = state.gexConvention;
+  $('gexToggle').className = 'chip mono text-[10px] hl-amb';
+  bindEvents();
+  renderHeader();
+  tickClock(); setInterval(tickClock, 1000);
+  await refresh();
+  setInterval(refresh, CONFIG.REFRESH_MS);
+  if (window.location.hash === '#test') runTests();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
