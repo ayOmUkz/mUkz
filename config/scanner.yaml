@@ -1,0 +1,67 @@
+# ACTUAL_TRADES Scanner Engine — Default Configuration
+# All thresholds are tunable. Edit and re-run; no code changes required.
+
+universe:
+  benchmark: "SPY"
+  # Sector ETFs used as proxies for top-down sector strength.
+  sector_etfs:
+    Technology: "XLK"
+    Financials: "XLF"
+    Healthcare: "XLV"
+    Energy: "XLE"
+    Industrials: "XLI"
+    ConsumerDiscretionary: "XLY"
+    ConsumerStaples: "XLP"
+    Utilities: "XLU"
+    Materials: "XLB"
+    RealEstate: "XLRE"
+    Communications: "XLC"
+  # Default candidate universe. Override at runtime via --tickers or --universe-file.
+  default_tickers: []
+
+sector_engine:
+  lookback_days: 21          # ~1 trading month
+  volume_lookback_days: 30
+  top_n_sectors: 5
+  weights:
+    relative_performance: 0.50
+    volume_expansion: 0.25
+    relative_strength: 0.25
+
+stock_engine:
+  momentum:
+    min_1m_return: 0.05      # +5%
+    require_above_20d_ma: true
+    require_above_50d_ma: true
+    min_relative_strength: 1.0   # vs benchmark (1.0 = matches market)
+  market_cap:
+    min_usd: 500_000_000     # $500M
+    max_usd: 3_000_000_000   # $3B
+  liquidity:
+    min_avg_daily_volume: 500_000
+
+options_engine:
+  iv_rank:
+    max: 30.0                # cheap options only
+    lookback_days: 252       # 1Y
+  liquidity:
+    min_total_volume: 1_000  # contracts/day
+    min_open_interest_per_strike: 500
+    max_bid_ask_spread_pct: 0.15   # 15% of mid
+  expirations:
+    min_dte: 20
+    max_dte: 60
+
+ranking:
+  weights:
+    momentum: 0.40
+    iv_cheapness: 0.30
+    liquidity: 0.15
+    sector_strength: 0.15
+  top_n_results: 25
+
+data:
+  cache_enabled: true
+  cache_ttl_minutes: 60
+  request_timeout_seconds: 30
+  history_days: 400          # enough for 252-day IV rank window
