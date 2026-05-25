@@ -1,47 +1,66 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-## What this repo is
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-A single Claude Code skill: `markov-hedge-fund-method`. It fits an empirical 5×5 Markov transition matrix to ~5 years of daily log returns for a ticker, conditions on today's state, and emits a Markdown report with a LONG/FLAT/SHORT recommendation. There is no application, library, or test suite — the deliverable is the skill itself.
+## 1. Think Before Coding
 
-## Running the skill
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
 
 ```
-bash .claude/skills/markov-hedge-fund-method/run.sh <TICKER>
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
 ```
 
-`run.sh` bootstraps `.venv/` inside the skill directory on first invocation and `pip install`s `yfinance`, `pandas`, `numpy` (~30s). Subsequent runs reuse the venv (<1s). The venv is gitignored.
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-The user-facing entry point is the slash command `/markov-hedge-fund-method <TICKER>`, defined in `.claude/commands/markov-hedge-fund-method.md`, which calls the same `run.sh`.
+---
 
-## Architecture
-
-Three files do all the work:
-
-- `.claude/commands/markov-hedge-fund-method.md` — slash-command frontmatter + instructions to the agent. Thin wrapper around `run.sh`.
-- `.claude/skills/markov-hedge-fund-method/SKILL.md` — skill manifest (auto-loaded when the skill is invoked). Describes the method and the output contract.
-- `.claude/skills/markov-hedge-fund-method/markov.py` — the actual computation. Pure stdout; no flags, no config files.
-
-`run.sh` is the bootstrap layer between them. Keep this separation: the slash command shouldn't reach into `markov.py` directly, and `markov.py` shouldn't know about Claude Code.
-
-## Output contract (important)
-
-`markov.py` writes a self-contained Markdown report to stdout. Both the slash command and `SKILL.md` instruct the agent to **print it verbatim** — no summarizing, no rewriting, no extracting "the recommendation." The Recommendation section already contains the rationale. If you change the script's output format, update both `.claude/commands/markov-hedge-fund-method.md` and `.claude/skills/markov-hedge-fund-method/SKILL.md` to match.
-
-## Method (mirrors SKILL.md, kept here so edits stay in sync)
-
-1. Fetch 5y daily adjusted closes via `yfinance` (`auto_adjust=True`).
-2. Compute daily log returns; σ = realized stdev.
-3. Bucket into 5 states using σ-scaled thresholds: `down-big` (<−1.5σ), `down`, `flat` (±0.5σ), `up`, `up-big` (≥+1.5σ).
-4. Estimate empirical 5×5 transition matrix `P` by counting consecutive-state pairs; row-normalize (zero rows kept zero via `row_sums[row_sums == 0] = 1.0`).
-5. Multiply today's state row by `P` → next-day distribution.
-6. E[r] = next-day distribution · midpoints (−2σ, −σ, 0, +σ, +2σ).
-7. Position rule: LONG if E[r] > +0.25σ; SHORT if < −0.25σ; else FLAT.
-
-Any change to the state grid, thresholds, or position rule needs to be reflected in the `## State definitions` table the script prints, plus `SKILL.md`'s Method section.
-
-## Network requirements
-
-The skill needs outbound access to PyPI (first run) and Yahoo Finance (every run). If either is blocked by the session's network policy, the script fails loudly — surface the error rather than fabricating output.
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
