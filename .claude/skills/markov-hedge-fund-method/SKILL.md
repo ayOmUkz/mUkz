@@ -31,6 +31,18 @@ The first invocation creates `.venv/` inside the skill directory and installs `y
 or Yahoo Finance, the script will fail loudly — surface the error to the user rather than
 fabricating output.
 
+## Architecture
+
+Three files cooperate:
+
+- `.claude/commands/markov-hedge-fund-method.md` — slash-command wrapper around `run.sh`. The user-facing entry point.
+- `SKILL.md` (this file) — auto-loaded when the skill is invoked. Describes when to use it, how to run it, and the output contract.
+- `markov.py` — pure computation. No flags, no config, stdout only. Does not know about Claude Code.
+
+`run.sh` is the bootstrap layer between them. Keep this separation when editing: the
+slash command shouldn't reach into `markov.py` directly, and `markov.py` shouldn't
+reference the skill or Claude Code.
+
 ## Presenting the result
 
 The script emits a self-contained Markdown report on stdout. **Print it directly to the
@@ -52,6 +64,10 @@ follow-up question.
 5. Take today's state, multiply by P → next-day state distribution.
 6. Compute E[r_{t+1}] using state midpoints (−2σ, −σ, 0, +σ, +2σ).
 7. Position rule: LONG if E[r] > +0.25σ; SHORT if E[r] < −0.25σ; else FLAT.
+
+If you change the state grid, thresholds, or position rule, also update the
+`## State definitions` table the script prints in `markov.py` so the report stays
+consistent with this section.
 
 ## Limitations (already disclosed in the report)
 
