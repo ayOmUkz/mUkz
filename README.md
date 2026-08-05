@@ -16,8 +16,8 @@ formulas, backtesting methodology — lives in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Status
 
-Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust) and
-**M2** (enrich & classify) are complete:
+Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust),
+**M2** (enrich & classify) and **M3** (zones & inference) are complete:
 
 - `backend/app/config.py` — validated configuration: secrets from `.env`,
   every tunable weight/threshold from `config/settings.yaml` (unknown keys
@@ -43,6 +43,19 @@ Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust) and
   provisional), NBBO location bucket, Eastern-Time timing bucket, and
   hedged liquidity character. Location is a feature, never a verdict.
 - `GET /tape?ticker=…&date=…` — the classified dark-pool tape (FastAPI).
+- `backend/app/analytics/zones.py` — ATR-scaled 1-D clustering of
+  elevated+ prints into zones, per-zone metrics, a 0–100 strength score
+  with a visible component breakdown, and a daily-candle status machine
+  (untested → tested → respected, broken → reclaimed) with events.
+- `backend/app/analytics/inference.py` — the evidence ledger: items across
+  independent source groups (dark-pool structure, price behavior, volume
+  asymmetry; options confirmation arrives with M4 context), six-state
+  verdicts, confidence hard-capped at 0.85, machine-generated invalidation
+  conditions.
+- `backend/app/analytics/scoring.py` + `analyze.py` — print significance,
+  data quality (a multiplicative gate), trade relevance, DPSS; one
+  immutable signal per ticker-day in `signals` (re-runs never rewrite
+  history), plus the provider price-levels cross-check.
 
 Run it (with `.env` filled in):
 
@@ -51,11 +64,12 @@ cd backend
 python -m app.jobs.ingest --backfill-days 14   # the M1 exit criterion
 python -m app.jobs.probes                      # answers the plan §2 unknowns
 python -m app.jobs.enrich --backfill-days 14   # M2: context + classification
+python -m app.jobs.analyze --backfill-days 14 --crosscheck  # M3: zones + signals
 uvicorn app.api.main:app --reload              # then GET /tape?ticker=NVDA
 ```
 
-Next: **M3 — Zones & inference** (price-zone clustering, evidence ledger,
-scoring). Roadmap in `docs/PLAN.md` §19.
+Next: **M4 — Scanner, alerts, reports** (ranked categories, alert bus +
+email digest, the per-ticker report format). Roadmap in `docs/PLAN.md` §19.
 
 ## Quickstart
 

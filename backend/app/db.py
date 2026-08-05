@@ -137,6 +137,63 @@ symbol_days = sa.Table(
     sa.UniqueConstraint("ticker", "trading_date", name="uq_symbol_days_identity"),
 )
 
+zones = sa.Table(
+    "zones",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("ticker", sa.Text, nullable=False),
+    sa.Column("as_of_date", sa.Date, nullable=False),
+    sa.Column("window_start", sa.Date, nullable=False),
+    sa.Column("window_end", sa.Date, nullable=False),
+    sa.Column("price_low", sa.Numeric(18, 6), nullable=False),
+    sa.Column("price_high", sa.Numeric(18, 6), nullable=False),
+    sa.Column("wavg_price", sa.Numeric(18, 6), nullable=False),
+    sa.Column("total_shares", sa.BigInteger, nullable=False),
+    sa.Column("total_notional", sa.Numeric(20, 4), nullable=False),
+    sa.Column("print_count", sa.Integer, nullable=False),
+    sa.Column("unique_days", sa.Integer, nullable=False),
+    sa.Column("first_print_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("last_print_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("pct_adv30", sa.Float),
+    sa.Column("pct_dark_volume", sa.Float),
+    sa.Column("tightness_atr", sa.Float),
+    sa.Column("strength_score", sa.Float, nullable=False),
+    sa.Column("strength_class", sa.Text, nullable=False),  # weak..exceptional
+    sa.Column("status", sa.Text, nullable=False),  # untested..broken/reclaimed
+    sa.Column("respected_touches", sa.Integer, nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Index("ix_zones_ticker_asof", "ticker", "as_of_date"),
+)
+
+zone_events = sa.Table(
+    "zone_events",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("zone_id", sa.Integer, nullable=False),
+    sa.Column("session_date", sa.Date, nullable=False),
+    sa.Column("event", sa.Text, nullable=False),  # touch | reject | break | reclaim
+    sa.Column("close", sa.Numeric(18, 6)),
+    sa.Index("ix_zone_events_zone", "zone_id"),
+)
+
+signals = sa.Table(
+    "signals",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("ticker", sa.Text, nullable=False),
+    sa.Column("as_of_date", sa.Date, nullable=False),
+    sa.Column("classification", sa.Text, nullable=False),  # 6-state (plan §10)
+    sa.Column("confidence", sa.Float, nullable=False),
+    sa.Column("dpss", sa.Float, nullable=False),
+    sa.Column("sub_scores", JsonB, nullable=False),
+    sa.Column("evidence", JsonB, nullable=False),  # {supporting, contradicting}
+    sa.Column("invalidation", JsonB, nullable=False),
+    sa.Column("top_zone", JsonB),  # self-contained snapshot (zones get rebuilt)
+    sa.Column("available_at", sa.DateTime(timezone=True), nullable=False),
+    # Immutable once written (backtest integrity): re-runs insert-ignore.
+    sa.UniqueConstraint("ticker", "as_of_date", name="uq_signals_identity"),
+)
+
 symbol_stats = sa.Table(
     "symbol_stats",
     metadata,
