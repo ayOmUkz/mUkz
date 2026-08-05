@@ -211,6 +211,52 @@ alerts = sa.Table(
     sa.Index("ix_alerts_asof", "as_of_date"),
 )
 
+backtest_runs = sa.Table(
+    "backtest_runs",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("start_date", sa.Date),
+    sa.Column("end_date", sa.Date),
+    sa.Column("config", JsonB, nullable=False),
+    sa.Column("config_hash", sa.Text, nullable=False),
+    sa.Column("summary", JsonB, nullable=False),
+)
+
+backtest_events = sa.Table(
+    "backtest_events",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("run_id", sa.Integer, nullable=False),
+    sa.Column("ticker", sa.Text, nullable=False),
+    sa.Column("signal_date", sa.Date, nullable=False),
+    sa.Column("direction", sa.Integer, nullable=False),  # +1 acc / -1 dist
+    sa.Column("classification", sa.Text, nullable=False),
+    sa.Column("confidence", sa.Float, nullable=False),
+    sa.Column("dpss", sa.Float, nullable=False),
+    sa.Column("overlapping", sa.Boolean, nullable=False),
+    sa.Column("unmeasurable", sa.Text),  # reason, when no entry price exists
+    sa.Column("entry_date", sa.Date),
+    sa.Column("entry_price", sa.Float),
+    sa.Column("returns", JsonB),  # per horizon: {raw, market_adj, vol_adj}
+    sa.Column("mfe", sa.Float),
+    sa.Column("mae", sa.Float),
+    sa.Column("invalidated_at_session", sa.Integer),
+    sa.Column("segments", JsonB, nullable=False),
+    sa.Index("ix_backtest_events_run", "run_id"),
+)
+
+backtest_results = sa.Table(
+    "backtest_results",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("run_id", sa.Integer, nullable=False),
+    sa.Column("cohort", sa.Text, nullable=False),
+    sa.Column("horizon", sa.Integer, nullable=False),
+    sa.Column("metrics", JsonB, nullable=False),
+    sa.Index("ix_backtest_results_run", "run_id"),
+)
+
 symbol_stats = sa.Table(
     "symbol_stats",
     metadata,

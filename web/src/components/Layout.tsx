@@ -14,6 +14,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <nav>
           <Link href="/">Overview</Link>
           <Link href="/tape">Tape</Link>
+          <Link href="/backtest">Backtest</Link>
         </nav>
       </header>
       <main className="container">{children}</main>

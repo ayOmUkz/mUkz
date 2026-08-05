@@ -22,7 +22,16 @@ from sqlalchemy.engine import Engine
 from app.analytics.context import load_daily
 from app.config import Settings, load_settings
 from app.db import alerts as alerts_table
-from app.db import data_quality_log, ingest_runs, make_engine, prints, signals, symbol_days
+from app.db import (
+    backtest_results,
+    backtest_runs,
+    data_quality_log,
+    ingest_runs,
+    make_engine,
+    prints,
+    signals,
+    symbol_days,
+)
 from app.db import zones as zones_table
 from app.reports import build_ticker_report
 from app.scanner import scan
@@ -342,3 +351,38 @@ def _as_session_date(value: datetime) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.date().isoformat()
+
+
+@app.get("/backtest")
+def backtest_endpoint(engine: Annotated[Engine, Depends(get_engine)]) -> dict[str, Any]:
+    """The latest backtest run: summary + cohort metrics (nulls included)."""
+    with engine.connect() as conn:
+        run = conn.execute(
+            sa.select(backtest_runs).order_by(backtest_runs.c.id.desc()).limit(1)
+        ).mappings().first()
+        if run is None:
+            raise HTTPException(
+                status_code=404, detail="no backtest run yet — python -m app.jobs.backtest"
+            )
+        result_rows = conn.execute(
+            sa.select(backtest_results).where(backtest_results.c.run_id == run["id"])
+        ).mappings().all()
+
+    def _load(value: Any) -> Any:
+        return json.loads(value) if isinstance(value, str) else value
+
+    return {
+        "run_id": run["id"],
+        "created_at": _jsonable(run["created_at"]),
+        "config": _load(run["config"]),
+        "config_hash": run["config_hash"],
+        "summary": _load(run["summary"]),
+        "results": [
+            {
+                "cohort": row["cohort"],
+                "horizon": row["horizon"],
+                "metrics": _load(row["metrics"]),
+            }
+            for row in result_rows
+        ],
+    }

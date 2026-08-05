@@ -215,6 +215,27 @@ class EnrichmentConfig(StrictModel):
     minute_candle_size: str = "1m"
 
 
+class BacktestConfig(StrictModel):
+    # Sessions after entry whose close is measured (entry = next session's
+    # OPEN after the signal date — no look-ahead by construction).
+    horizons: list[int] = Field(default_factory=lambda: [1, 3, 5, 20])
+    bootstrap_samples: int = 1000
+    seed: int = 7               # bootstrap is deterministic given the seed
+    min_cohort_n: int = 5       # below this, a cohort is reported as "too thin"
+
+    @model_validator(mode="after")
+    def _horizons_valid(self) -> BacktestConfig:
+        if not self.horizons or any(h < 1 for h in self.horizons):
+            raise ValueError("horizons must be positive session counts")
+        if sorted(self.horizons) != self.horizons:
+            raise ValueError("horizons must be sorted ascending")
+        return self
+
+    @property
+    def max_horizon(self) -> int:
+        return self.horizons[-1]
+
+
 class PipelineConfig(StrictModel):
     run_after_close_et: str = "17:30"
     timezone: str = "America/New_York"
@@ -233,6 +254,7 @@ class Settings(StrictModel):
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
+    backtest: BacktestConfig = Field(default_factory=BacktestConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
 

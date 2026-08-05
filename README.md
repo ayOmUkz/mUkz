@@ -18,7 +18,8 @@ formulas, backtesting methodology — lives in [`docs/PLAN.md`](docs/PLAN.md).
 
 Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust),
 **M2** (enrich & classify), **M3** (zones & inference), **M4** (scanner,
-alerts, reports) and **M5** (dashboard) are complete:
+alerts, reports), **M5** (dashboard) and **M6** (backtesting) are
+complete:
 
 - `backend/app/config.py` — validated configuration: secrets from `.env`,
   every tunable weight/threshold from `config/settings.yaml` (unknown keys
@@ -75,8 +76,16 @@ alerts, reports) and **M5** (dashboard) are complete:
   `GET /symbol/{ticker}` (plus the tape).
 - `web/` — the Next.js dashboard: overview (scanner + alerts + data-quality
   banner), symbol detail (price chart with zone/VWAP/invalidation lines and
-  print markers, score breakdown, evidence side-by-side), and the tape —
-  with plain-language glossary tooltips on every technical term.
+  print markers, score breakdown, evidence side-by-side), the tape, and the
+  backtest page — with plain-language glossary tooltips on every term.
+- `backend/app/backtest/` — the event study over the **immutable** signals
+  table: entry at the next session's open (the signal day's move is never
+  credited — a planted look-ahead trap in the test suite proves it), overlap
+  control (one active event per ticker-direction), market/ATR-adjusted
+  returns, MFE/MAE, invalidation-based false-positive rates, seeded
+  bootstrap confidence intervals, and an explicit "no demonstrated edge"
+  list — null results are published, not buried
+  (`python -m app.jobs.backtest`, `GET /backtest`, `/backtest` page).
 
 Run it (with `.env` filled in):
 
@@ -88,7 +97,8 @@ python -m app.jobs.enrich --backfill-days 14   # M2: context + classification
 python -m app.jobs.analyze --backfill-days 14 --crosscheck  # M3: zones + signals
 python -m app.jobs.nightly                     # M4: the whole chain + alerts + reports
 python -m app.jobs.report --ticker NVDA        # one Phase-12 report to stdout
-uvicorn app.api.main:app --reload              # /tape /scan /alerts /report/{ticker}
+python -m app.jobs.backtest                    # M6: the honest event study
+uvicorn app.api.main:app --reload              # /tape /scan /alerts /report /backtest
 ```
 
 Schedule `python -m app.jobs.nightly` after the close (cron / systemd
@@ -101,9 +111,9 @@ cp .env.example .env && $EDITOR .env
 docker compose up --build    # dashboard :3000, API :8000
 ```
 
-Next: **M6 — Backtesting** (the signals table has been immutable since M3
-precisely for this), then **M7 — Intraday** (websocket ingestion, Redis
-cooldowns, options-flow evidence). Roadmap in `docs/PLAN.md` §19.
+Next: **M7 — Intraday** (websocket `off_lit_trades` ingestion, Redis
+alert cooldowns, options-flow evidence group D, true intraday backtest
+horizons). Roadmap in `docs/PLAN.md` §19.
 
 ## Quickstart
 
