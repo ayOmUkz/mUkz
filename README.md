@@ -17,8 +17,8 @@ formulas, backtesting methodology — lives in [`docs/PLAN.md`](docs/PLAN.md).
 ## Status
 
 Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust),
-**M2** (enrich & classify), **M3** (zones & inference) and **M4**
-(scanner, alerts, reports) are complete:
+**M2** (enrich & classify), **M3** (zones & inference), **M4** (scanner,
+alerts, reports) and **M5** (dashboard) are complete:
 
 - `backend/app/config.py` — validated configuration: secrets from `.env`,
   every tunable weight/threshold from `config/settings.yaml` (unknown keys
@@ -71,7 +71,12 @@ Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust),
   markdown): summary, interpretation with both evidence columns, levels,
   scenario map, and one of the five verdicts. Never a guaranteed
   prediction.
-- API: `GET /scan`, `GET /alerts`, `GET /report/{ticker}` (plus the tape).
+- API: `GET /scan`, `GET /alerts`, `GET /report/{ticker}`, `GET /status`,
+  `GET /symbol/{ticker}` (plus the tape).
+- `web/` — the Next.js dashboard: overview (scanner + alerts + data-quality
+  banner), symbol detail (price chart with zone/VWAP/invalidation lines and
+  print markers, score breakdown, evidence side-by-side), and the tape —
+  with plain-language glossary tooltips on every technical term.
 
 Run it (with `.env` filled in):
 
@@ -89,8 +94,16 @@ uvicorn app.api.main:app --reload              # /tape /scan /alerts /report/{ti
 Schedule `python -m app.jobs.nightly` after the close (cron / systemd
 timer / Task Scheduler); every stage is idempotent, so re-runs are safe.
 
-Next: **M5 — Dashboard** (Next.js: overview, symbol detail with zone
-bands, the tape, glossary tooltips). Roadmap in `docs/PLAN.md` §19.
+Or run everything with Docker:
+
+```bash
+cp .env.example .env && $EDITOR .env
+docker compose up --build    # dashboard :3000, API :8000
+```
+
+Next: **M6 — Backtesting** (the signals table has been immutable since M3
+precisely for this), then **M7 — Intraday** (websocket ingestion, Redis
+cooldowns, options-flow evidence). Roadmap in `docs/PLAN.md` §19.
 
 ## Quickstart
 

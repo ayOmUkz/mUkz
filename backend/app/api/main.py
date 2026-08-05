@@ -1,13 +1,14 @@
 """FastAPI service.
 
 M0: health. M2: the classified dark-pool tape. M4: scanner categories,
-the alert feed, and the per-ticker Phase-12 report. The dashboard that
-consumes these arrives with M5 — see docs/PLAN.md §15/§19.
+the alert feed, and the per-ticker Phase-12 report. M5: the status and
+symbol-detail endpoints the Next.js dashboard consumes, plus CORS for it.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from functools import lru_cache
@@ -15,15 +16,28 @@ from typing import Annotated, Any
 
 import sqlalchemy as sa
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.engine import Engine
 
+from app.analytics.context import load_daily
 from app.config import Settings, load_settings
 from app.db import alerts as alerts_table
-from app.db import make_engine, prints, signals
+from app.db import data_quality_log, ingest_runs, make_engine, prints, signals, symbol_days
+from app.db import zones as zones_table
 from app.reports import build_ticker_report
 from app.scanner import scan
 
-app = FastAPI(title="Dark Pool Intelligence Engine", version="0.4.0")
+app = FastAPI(title="Dark Pool Intelligence Engine", version="0.5.0")
+
+# The dashboard runs on another origin (localhost:3000 in the default
+# docker-compose). The UW API token never travels through here — the
+# browser only ever talks to this service.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(","),
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 #: Tape columns, in display order (plan §15 "Dark-pool tape").
 TAPE_COLUMNS = (
@@ -180,3 +194,151 @@ def report_endpoint(
             detail=f"no signal for {ticker.upper()} on {as_of.isoformat()}",
         )
     return report
+
+
+@app.get("/status")
+def status_endpoint(engine: Annotated[Engine, Depends(get_engine)]) -> dict[str, Any]:
+    """Data-quality banner: last run, quarantine count, table counts."""
+    with engine.connect() as conn:
+        run = conn.execute(
+            sa.select(ingest_runs).order_by(ingest_runs.c.id.desc()).limit(1)
+        ).mappings().first()
+        counts = {
+            "prints": conn.execute(
+                sa.select(sa.func.count()).select_from(prints)
+            ).scalar(),
+            "quarantined": conn.execute(
+                sa.select(sa.func.count()).select_from(data_quality_log)
+            ).scalar(),
+            "zones": conn.execute(
+                sa.select(sa.func.count()).select_from(zones_table)
+            ).scalar(),
+            "signals": conn.execute(
+                sa.select(sa.func.count()).select_from(signals)
+            ).scalar(),
+            "alerts": conn.execute(
+                sa.select(sa.func.count()).select_from(alerts_table)
+            ).scalar(),
+        }
+    last_run = None
+    if run is not None:
+        stats = run["stats"]
+        last_run = {
+            "date": _jsonable(run["run_date"]) if not isinstance(run["run_date"], date)
+            else run["run_date"].isoformat(),
+            "started_at": _jsonable(run["started_at"]),
+            "finished_at": _jsonable(run["finished_at"]),
+            "stats": json.loads(stats) if isinstance(stats, str) else stats,
+        }
+    latest = _latest_signal_date(engine)
+    return {
+        "last_run": last_run,
+        "latest_signal_date": latest.isoformat() if latest else None,
+        "counts": counts,
+    }
+
+
+@app.get("/symbol/{ticker}")
+def symbol_endpoint(
+    ticker: str,
+    engine: Annotated[Engine, Depends(get_engine)],
+    trading_date: Annotated[date | None, Query(alias="date")] = None,
+) -> dict[str, Any]:
+    """Everything the symbol-detail chart needs: candles, zones, prints."""
+    symbol = ticker.upper()
+    as_of = trading_date or _latest_signal_date(engine)
+    if as_of is None:
+        raise HTTPException(status_code=404, detail="no analyzed sessions yet")
+    day_start = datetime.combine(as_of, time(0, 0), tzinfo=UTC)
+    day_end = day_start + timedelta(days=2)
+    with engine.connect() as conn:
+        daily = load_daily(conn, symbol, as_of)
+        day_row = conn.execute(
+            sa.select(symbol_days).where(
+                symbol_days.c.ticker == symbol, symbol_days.c.trading_date == as_of
+            )
+        ).mappings().first()
+        zone_rows = conn.execute(
+            sa.select(zones_table)
+            .where(zones_table.c.ticker == symbol, zones_table.c.as_of_date == as_of)
+            .order_by(zones_table.c.strength_score.desc())
+        ).mappings().all()
+        print_rows = conn.execute(
+            sa.select(
+                prints.c.executed_at, prints.c.price, prints.c.size,
+                prints.c.size_class, prints.c.size_percentile, prints.c.premium,
+            ).where(
+                prints.c.ticker == symbol,
+                prints.c.executed_at >= day_start,
+                prints.c.executed_at < day_end,
+            ).order_by(prints.c.executed_at)
+        ).mappings().all()
+        signal = conn.execute(
+            sa.select(signals).where(
+                signals.c.ticker == symbol, signals.c.as_of_date == as_of
+            )
+        ).mappings().first()
+
+    if not daily and not zone_rows and not print_rows:
+        raise HTTPException(status_code=404, detail=f"nothing stored for {symbol}")
+
+    invalidation: list[dict[str, Any]] = []
+    signal_summary = None
+    if signal is not None:
+        raw = signal["invalidation"]
+        invalidation = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        signal_summary = {
+            "classification": signal["classification"],
+            "confidence": signal["confidence"],
+            "dpss": signal["dpss"],
+        }
+    return {
+        "ticker": symbol,
+        "date": as_of.isoformat(),
+        "candles": [
+            {
+                "time": row["ts"].date().isoformat(),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+            }
+            for row in daily
+        ],
+        "vwap": float(day_row["session_vwap"]) if day_row and day_row["session_vwap"]
+        else None,
+        "atr": day_row["atr14"] if day_row else None,
+        "zones": [
+            {
+                "low": float(row["price_low"]),
+                "high": float(row["price_high"]),
+                "wavg": float(row["wavg_price"]),
+                "strength_score": row["strength_score"],
+                "strength_class": row["strength_class"],
+                "status": row["status"],
+                "unique_days": row["unique_days"],
+                "total_shares": row["total_shares"],
+            }
+            for row in zone_rows
+        ],
+        "prints": [
+            {
+                "executed_at": _jsonable(row["executed_at"]),
+                "session": _as_session_date(row["executed_at"]),
+                "price": float(row["price"]),
+                "size": row["size"],
+                "size_class": row["size_class"],
+                "size_percentile": row["size_percentile"],
+                "premium": float(row["premium"]),
+            }
+            for row in print_rows
+        ],
+        "invalidation": invalidation,
+        "signal": signal_summary,
+    }
+
+
+def _as_session_date(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.date().isoformat()
