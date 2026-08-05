@@ -1,8 +1,7 @@
 """Alembic environment.
 
 The database URL comes from the ``DATABASE_URL`` environment variable
-(see .env.example) — never from a committed file. No ORM models exist yet
-(milestone M0); the first revisions arrive with M1's raw-print storage.
+(see .env.example) — never from a committed file.
 """
 
 from __future__ import annotations
@@ -12,9 +11,7 @@ import os
 from sqlalchemy import create_engine, pool
 
 from alembic import context
-
-# M1: point this at the SQLAlchemy metadata once models exist.
-target_metadata = None
+from app.db import metadata as target_metadata  # single source of truth for the schema
 
 
 def _database_url() -> str:

@@ -125,3 +125,27 @@ def test_price_levels_endpoint():
     with make_client() as client:
         levels = client.darkpool_price_levels("NVDA", date="2026-08-05")
     assert levels == {"stock_price_vol": []}
+
+
+@respx.mock
+def test_ticker_info_and_splits_endpoints():
+    respx.get(f"{BASE}/api/stock/AAPL/info").mock(
+        return_value=httpx.Response(200, json={"data": {"full_name": "Apple Inc"}})
+    )
+    respx.get(f"{BASE}/api/companies/AAPL/splits").mock(
+        return_value=httpx.Response(200, json={"data": [{"ratio": "4:1"}]})
+    )
+    with make_client() as client:
+        assert client.ticker_info("AAPL") == {"full_name": "Apple Inc"}
+        assert client.company_splits("AAPL") == [{"ratio": "4:1"}]
+
+
+@respx.mock
+def test_short_screener_passes_tickers():
+    route = respx.get(f"{BASE}/api/short_screener").mock(
+        return_value=httpx.Response(200, json={"data": [{"ticker": "AAPL"}]})
+    )
+    with make_client() as client:
+        rows = client.short_screener(tickers="AAPL,NVDA", limit=2)
+    assert rows == [{"ticker": "AAPL"}]
+    assert "tickers=AAPL%2CNVDA" in str(route.calls.last.request.url)

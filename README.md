@@ -16,7 +16,8 @@ formulas, backtesting methodology — lives in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Status
 
-Milestone **M0** (scaffold + core contracts) is complete:
+Milestones **M0** (scaffold + core contracts) and **M1** (ingest & trust)
+are complete:
 
 - `backend/app/config.py` — validated configuration: secrets from `.env`,
   every tunable weight/threshold from `config/settings.yaml` (unknown keys
@@ -26,10 +27,25 @@ Milestone **M0** (scaffold + core contracts) is complete:
   `older_than` pagination, token never appears in logs or errors.
 - `backend/app/models/print.py` — the typed `DarkPoolPrint` contract with
   derived metrics (mid, spread, report delay, %ADV) and data-quality flags.
+- `backend/app/db.py` + alembic `0001` — symbols, `raw_prints` (verbatim,
+  never mutated), `prints` (validated only), `data_quality_log`,
+  `api_probes`, `ingest_runs`; TimescaleDB hypertables when available.
+- `backend/app/validation/` — the quality gate: fatal flags quarantine a
+  print, quote problems only downgrade its `location_confidence`.
+- `backend/app/ingestion/` — hybrid discovery + per-ticker deep fetch with
+  idempotent re-runs, plus the three verification probes (historical depth,
+  NBBO timing, float availability).
 
-Next: **M1 — Ingest & trust** (raw storage, validation pipeline, and the
-three probes: historical depth, NBBO timing, float availability). Roadmap in
-`docs/PLAN.md` §19.
+Run it (with `.env` filled in):
+
+```bash
+cd backend
+python -m app.jobs.ingest --backfill-days 14   # the M1 exit criterion
+python -m app.jobs.probes                      # answers the plan §2 unknowns
+```
+
+Next: **M2 — Enrich & classify** (candles/VWAP/ATR, per-symbol size
+distributions, print classification). Roadmap in `docs/PLAN.md` §19.
 
 ## Quickstart
 

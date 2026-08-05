@@ -253,3 +253,31 @@ class UWClient:
     def stock_state(self, ticker: str) -> dict[str, Any]:
         """GET /api/stock/{ticker}/stock-state — last price & volume."""
         return self._get(f"/api/stock/{ticker}/stock-state")
+
+    def ticker_info(self, ticker: str) -> dict[str, Any]:
+        """GET /api/stock/{ticker}/info — company/ticker metadata.
+
+        Which float / shares-outstanding fields it actually carries is what
+        the M1 float-availability probe measures (docs/PLAN.md §2).
+        """
+        return self._get(f"/api/stock/{ticker}/info")
+
+    def company_splits(self, ticker: str) -> list[dict[str, Any]]:
+        """GET /api/companies/{ticker}/splits — stock split history.
+
+        Feeds the split/reverse-split detector so old dark-pool zones are
+        re-scaled or invalidated instead of pointing at pre-split prices.
+        """
+        return self._get(f"/api/companies/{ticker}/splits")
+
+    def short_screener(
+        self,
+        *,
+        tickers: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """GET /api/short_screener — short interest, float size, days-to-cover."""
+        return self._get(
+            "/api/short_screener", {"tickers": tickers, "limit": limit, "offset": offset}
+        )
