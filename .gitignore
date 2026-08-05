@@ -1,0 +1,26 @@
+# Secrets — never commit these
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Node / dashboard
+node_modules/
+web/.next/
+web/out/
+
+# Generated reports
+reports_out/
+
+# OS noise
+.DS_Store

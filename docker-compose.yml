@@ -1,0 +1,58 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: darkpool
+      POSTGRES_PASSWORD: darkpool
+      POSTGRES_DB: darkpool
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U darkpool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # DB is reachable only from other containers. Uncomment to inspect
+    # with a local SQL client:
+    # ports:
+    #   - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://darkpool:darkpool@db:5432/darkpool
+      REDIS_URL: redis://redis:6379/0
+      SETTINGS_PATH: /srv/config/settings.yaml
+      # Set to 1 to run the intraday collector inside the API process
+      # (live prints + alerts on the dashboard via /ws/live).
+      INTRADAY_ENABLED: ${INTRADAY_ENABLED:-0}
+    volumes:
+      - ./config:/srv/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  web:
+    build: ./web
+    environment:
+      # Browser-side URL of the API (the host's port mapping, not the
+      # container network) — the UW token never reaches the browser.
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  db_data:
+  redis_data:
