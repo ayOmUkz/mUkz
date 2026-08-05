@@ -16,8 +16,8 @@ formulas, backtesting methodology — lives in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Status
 
-Milestones **M0** (scaffold + core contracts) and **M1** (ingest & trust)
-are complete:
+Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust) and
+**M2** (enrich & classify) are complete:
 
 - `backend/app/config.py` — validated configuration: secrets from `.env`,
   every tunable weight/threshold from `config/settings.yaml` (unknown keys
@@ -35,6 +35,14 @@ are complete:
 - `backend/app/ingestion/` — hybrid discovery + per-ticker deep fetch with
   idempotent re-runs, plus the three verification probes (historical depth,
   NBBO timing, float availability).
+- `backend/app/enrichment/` — candles (shape-tolerant normalizer), session
+  VWAP, ATR(14), prior-day levels into `symbol_days`; each symbol's rolling
+  dark-print size distribution (median/MAD/percentiles) into `symbol_stats`.
+- `backend/app/analytics/classify.py` — pure classification rules: size
+  class vs the symbol's *own* history (cold-start notional fallback marked
+  provisional), NBBO location bucket, Eastern-Time timing bucket, and
+  hedged liquidity character. Location is a feature, never a verdict.
+- `GET /tape?ticker=…&date=…` — the classified dark-pool tape (FastAPI).
 
 Run it (with `.env` filled in):
 
@@ -42,10 +50,12 @@ Run it (with `.env` filled in):
 cd backend
 python -m app.jobs.ingest --backfill-days 14   # the M1 exit criterion
 python -m app.jobs.probes                      # answers the plan §2 unknowns
+python -m app.jobs.enrich --backfill-days 14   # M2: context + classification
+uvicorn app.api.main:app --reload              # then GET /tape?ticker=NVDA
 ```
 
-Next: **M2 — Enrich & classify** (candles/VWAP/ATR, per-symbol size
-distributions, print classification). Roadmap in `docs/PLAN.md` §19.
+Next: **M3 — Zones & inference** (price-zone clustering, evidence ledger,
+scoring). Roadmap in `docs/PLAN.md` §19.
 
 ## Quickstart
 

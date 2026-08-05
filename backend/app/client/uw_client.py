@@ -254,6 +254,29 @@ class UWClient:
         """GET /api/stock/{ticker}/stock-state — last price & volume."""
         return self._get(f"/api/stock/{ticker}/stock-state")
 
+    def ohlc(
+        self,
+        ticker: str,
+        candle_size: str,
+        *,
+        timeframe: str | None = None,
+        date: str | None = None,
+        end_date: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """GET /api/stock/{ticker}/ohlc/{candle_size} — price candles.
+
+        ``candle_size`` ∈ 1m/5m/10m/15m/30m/1h/4h/1d/1w; responses cap at
+        2500 bars. 1d/1w bars carry only a ``date`` (no start/end time).
+        Field naming varies across the provider's surfaces (``open`` vs
+        ``o``), so callers must go through
+        :func:`app.enrichment.candles.normalize_candles`.
+        """
+        return self._get(
+            f"/api/stock/{ticker}/ohlc/{candle_size}",
+            {"timeframe": timeframe, "date": date, "end_date": end_date, "limit": limit},
+        )
+
     def ticker_info(self, ticker: str) -> dict[str, Any]:
         """GET /api/stock/{ticker}/info — company/ticker metadata.
 

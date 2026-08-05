@@ -21,6 +21,16 @@ size_classes:
   extreme_percentile: 99.9
   extreme_pct_adv30: 0.01   # >1% of 30-day average daily volume is always "extreme"
   extreme_pct_float: 0.0025 # used only once float availability is confirmed (plan §2)
+  min_history_prints: 200   # below this sample, fall back to notional buckets
+  cold_start_notional:      # $ buckets while history is thin (marked provisional)
+    elevated: 1000000
+    unusual: 5000000
+    extreme: 20000000
+
+enrichment:
+  daily_history_days: 60    # daily candle window for ATR / prior-day levels
+  atr_period: 14
+  minute_candle_size: 1m    # bars used to compute the session VWAP
 
 location:
   spread_tolerance: 0.10    # "at bid/ask" = within 10% of the spread of that side

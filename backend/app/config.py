@@ -59,6 +59,20 @@ class DiscoveryConfig(StrictModel):
     max_symbols_per_day: int = 150
 
 
+class ColdStartNotional(StrictModel):
+    """Fallback $-notional buckets while a symbol's own history is thin."""
+
+    elevated: int = 1_000_000
+    unusual: int = 5_000_000
+    extreme: int = 20_000_000
+
+    @model_validator(mode="after")
+    def _ordered(self) -> ColdStartNotional:
+        if not (0 < self.elevated < self.unusual < self.extreme):
+            raise ValueError("cold-start notional buckets must be strictly increasing")
+        return self
+
+
 class SizeClassConfig(StrictModel):
     history_days: int = 60
     elevated_percentile: float = 90.0
@@ -66,6 +80,8 @@ class SizeClassConfig(StrictModel):
     extreme_percentile: float = 99.9
     extreme_pct_adv30: float = 0.01
     extreme_pct_float: float = 0.0025
+    min_history_prints: int = 200
+    cold_start_notional: ColdStartNotional = Field(default_factory=ColdStartNotional)
 
     @model_validator(mode="after")
     def _percentiles_ordered(self) -> SizeClassConfig:
@@ -182,6 +198,12 @@ class ApiConfig(StrictModel):
     timeout_seconds: float = 30.0
 
 
+class EnrichmentConfig(StrictModel):
+    daily_history_days: int = 60   # daily candle window for ATR / prior levels
+    atr_period: int = 14
+    minute_candle_size: str = "1m"
+
+
 class PipelineConfig(StrictModel):
     run_after_close_et: str = "17:30"
     timezone: str = "America/New_York"
@@ -195,6 +217,7 @@ class Settings(StrictModel):
     size_classes: SizeClassConfig = Field(default_factory=SizeClassConfig)
     location: LocationConfig = Field(default_factory=LocationConfig)
     zones: ZonesConfig = Field(default_factory=ZonesConfig)
+    enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)

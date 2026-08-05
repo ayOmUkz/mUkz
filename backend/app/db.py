@@ -85,8 +85,71 @@ prints = sa.Table(
     sa.Column("quality_flags", JsonB, nullable=False),
     sa.Column("location_confidence", sa.Text, nullable=False),  # ok | low | none
     sa.Column("ingested_at", sa.DateTime(timezone=True), nullable=False),
+    # --- M2 classification (plan §7); filled by the enrich job ---
+    sa.Column("size_class", sa.Text),        # normal | elevated | unusual | extreme
+    sa.Column("size_percentile", sa.Float),  # estimated, vs the symbol's own history
+    sa.Column("size_confidence", sa.Text),   # historical | provisional (cold start)
+    sa.Column("location_bucket", sa.Text),   # at_bid ... above_ask (None if no quote)
+    sa.Column("vwap_position", sa.Text),     # above | near | below (vs session VWAP)
+    sa.Column("timing_bucket", sa.Text),     # premarket ... after_hours | late_report
+    sa.Column("character", sa.Text),         # liquidity character (plan §7)
     sa.UniqueConstraint("ticker", "tracking_id", "executed_at", name="uq_prints_identity"),
-    # M2 adds classification columns (size_class, location_bucket, ...).
+)
+
+#: Classification columns added in M2 (migration 0002 guards on their absence).
+PRINT_CLASSIFICATION_COLUMNS = (
+    "size_class",
+    "size_percentile",
+    "size_confidence",
+    "location_bucket",
+    "vwap_position",
+    "timing_bucket",
+    "character",
+)
+
+candles = sa.Table(
+    "candles",
+    metadata,
+    sa.Column("ticker", sa.Text, nullable=False),
+    sa.Column("candle_size", sa.Text, nullable=False),  # 1m | 1d | ...
+    sa.Column("ts", sa.DateTime(timezone=True), nullable=False),  # bar start (UTC)
+    sa.Column("open", sa.Numeric(18, 6), nullable=False),
+    sa.Column("high", sa.Numeric(18, 6), nullable=False),
+    sa.Column("low", sa.Numeric(18, 6), nullable=False),
+    sa.Column("close", sa.Numeric(18, 6), nullable=False),
+    sa.Column("volume", sa.BigInteger),
+    sa.Column("session", sa.Text),  # r | pre | post when the API provides it
+    sa.UniqueConstraint("ticker", "candle_size", "ts", name="uq_candles_identity"),
+)
+
+symbol_days = sa.Table(
+    "symbol_days",
+    metadata,
+    sa.Column("ticker", sa.Text, nullable=False),
+    sa.Column("trading_date", sa.Date, nullable=False),
+    sa.Column("session_vwap", sa.Numeric(18, 6)),
+    sa.Column("atr14", sa.Float),
+    sa.Column("prior_high", sa.Numeric(18, 6)),
+    sa.Column("prior_low", sa.Numeric(18, 6)),
+    sa.Column("prior_close", sa.Numeric(18, 6)),
+    sa.Column("minute_bars", sa.Integer),  # VWAP coverage (0 = no minute data)
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("ticker", "trading_date", name="uq_symbol_days_identity"),
+)
+
+symbol_stats = sa.Table(
+    "symbol_stats",
+    metadata,
+    sa.Column("ticker", sa.Text, nullable=False),
+    sa.Column("as_of_date", sa.Date, nullable=False),
+    sa.Column("sample_size", sa.Integer, nullable=False),
+    sa.Column("p50", sa.Float),
+    sa.Column("p90", sa.Float),
+    sa.Column("p99", sa.Float),
+    sa.Column("p999", sa.Float),
+    sa.Column("mad", sa.Float),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("ticker", "as_of_date", name="uq_symbol_stats_identity"),
 )
 
 data_quality_log = sa.Table(
@@ -122,10 +185,24 @@ ingest_runs = sa.Table(
 )
 
 #: Tables that become hypertables on TimescaleDB, with their time column.
-HYPERTABLES: dict[str, str] = {"raw_prints": "executed_at", "prints": "executed_at"}
+HYPERTABLES: dict[str, str] = {
+    "raw_prints": "executed_at",
+    "prints": "executed_at",
+    "candles": "ts",
+}
 
 
 def make_engine(database_url: str) -> Engine:
+    if database_url.startswith("sqlite") and ":memory:" in database_url:
+        # A single shared connection, usable across threads — without this an
+        # in-memory database is empty in every new connection/thread (tests,
+        # FastAPI TestClient worker threads).
+        return sa.create_engine(
+            database_url,
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=sa.pool.StaticPool,
+        )
     return sa.create_engine(database_url, future=True)
 
 
