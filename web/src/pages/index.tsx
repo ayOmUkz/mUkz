@@ -156,7 +156,14 @@ export default function Overview() {
                 <span className="why">
                   {Object.entries(alert.payload)
                     .slice(0, 4)
-                    .map(([key, value]) => `${key}=${String(value)}`)
+                    .map(
+                      ([key, value]) =>
+                        `${key}=${
+                          typeof value === "object" && value !== null
+                            ? JSON.stringify(value)
+                            : String(value)
+                        }`,
+                    )
                     .join(" · ")}
                 </span>
               </li>
