@@ -1,0 +1,86 @@
+# Dark Pool Intelligence Engine — every tunable knob lives in this file.
+# Secrets do NOT belong here; they go in .env (see .env.example).
+# The schema is enforced at startup by backend/app/config.py — a typo in a
+# key name fails loudly instead of being silently ignored.
+
+universe:
+  # Symbols that always get the deep per-ticker analysis, in addition to
+  # whatever the discovery scan surfaces.
+  watchlist: [SPY, QQQ, IWM, AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA]
+
+discovery:
+  min_premium: 1000000      # $ floor for the whole-tape discovery scan
+  min_size: 5000            # share floor
+  limit: 200                # API maximum per page for /darkpool/recent
+  max_symbols_per_day: 150  # deep-fetch budget per nightly run
+
+size_classes:
+  history_days: 60          # rolling window for each symbol's own print-size distribution
+  elevated_percentile: 90.0
+  unusual_percentile: 99.0
+  extreme_percentile: 99.9
+  extreme_pct_adv30: 0.01   # >1% of 30-day average daily volume is always "extreme"
+  extreme_pct_float: 0.0025 # used only once float availability is confirmed (plan §2)
+
+location:
+  spread_tolerance: 0.10    # "at bid/ask" = within 10% of the spread of that side
+  vwap_band_pct: 0.001      # "near VWAP" band
+  late_report_seconds: 900  # beyond this delay, location_confidence = low
+
+zones:
+  window_days: 20
+  min_size_class: elevated  # only prints of this class or higher enter clustering
+  epsilon:                  # cluster tolerance = max of the three, in price terms
+    atr_mult: 0.25
+    pct_of_price: 0.0015
+    min_ticks: 2
+  strength_weights:         # must sum to 100 (validated at startup)
+    pct_adv30: 30
+    recurrence: 20
+    recency: 15
+    tightness: 10
+    concentration: 10
+    reactions: 15
+  recency_half_life_sessions: 5
+  respected_atr_mult: 0.5   # bounce needed for a touch to count as "respected"
+  broken_atr_mult: 0.5      # close-through needed to call a zone "broken"
+  reclaim_window_sessions: 3
+
+inference:
+  probable_net_weight: 4    # evidence needed for "probable" accumulation/distribution
+  probable_min_items: 3
+  possible_net_weight: 2
+  possible_min_items: 2
+  min_source_groups: 2      # independence: evidence must span >= 2 source groups
+  confidence_cap: 0.85      # this system is never certain, by design
+
+scoring:
+  dpss_weights:             # must sum to 1.0; data quality multiplies, never adds
+    print: 0.25
+    zone: 0.30
+    direction: 0.25
+    relevance: 0.20
+  print_significance_weights: # must sum to 1.0
+    size_percentile: 0.40
+    pct_adv30: 0.25
+    character: 0.20
+    timing: 0.15
+  etf_discount: 0.5         # ETFs/index products: probable portfolio flow, weak single-name signal
+
+alerts:
+  min_dpss: 60
+  cooldown_hours: 24
+  max_alerts_per_symbol_per_day: 5
+  email_digest: true
+  email_per_alert_min_class: extreme
+
+api:
+  base_url: https://api.unusualwhales.com
+  requests_per_minute: 100  # conservative until real limits are observed (plan §2.2)
+  max_retries: 4
+  backoff_seconds: [2, 4, 8, 16]
+  timeout_seconds: 30
+
+pipeline:
+  run_after_close_et: "17:30"
+  timezone: America/New_York

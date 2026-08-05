@@ -1,0 +1,46 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: darkpool
+      POSTGRES_PASSWORD: darkpool
+      POSTGRES_DB: darkpool
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U darkpool"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # DB is reachable only from other containers. Uncomment to inspect
+    # with a local SQL client:
+    # ports:
+    #   - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://darkpool:darkpool@db:5432/darkpool
+      REDIS_URL: redis://redis:6379/0
+      SETTINGS_PATH: /srv/config/settings.yaml
+    volumes:
+      - ./config:/srv/config:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  # web: the Next.js dashboard arrives in milestone M5 (see docs/PLAN.md §19)
+
+volumes:
+  db_data:
+  redis_data:
