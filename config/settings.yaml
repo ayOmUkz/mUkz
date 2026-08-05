@@ -77,12 +77,22 @@ scoring:
     timing: 0.15
   etf_discount: 0.5         # ETFs/index products: probable portfolio flow, weak single-name signal
 
+scanner:
+  min_dpss: 40                # floor for "fresh institutional activity"
+  strong_zone_strength: 60    # "strong+" zones for reclaim/reject/level scans
+  near_price_atr: 1.0         # zones within this many ATRs "matter today"
+  approach_pct: 0.02          # historical zones within 2% of current price
+  recent_sessions: 2          # look-back for reclaim/rejection events
+  limit_per_category: 20
+
 alerts:
   min_dpss: 60
   cooldown_hours: 24
   max_alerts_per_symbol_per_day: 5
   email_digest: true
   email_per_alert_min_class: extreme
+  min_zone_notional: 50000000 # cumulative zone notional worth an alert
+  stale_sessions: 5           # directional signal unrefreshed this long -> stale
 
 api:
   base_url: https://api.unusualwhales.com

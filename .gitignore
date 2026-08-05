@@ -19,5 +19,8 @@ node_modules/
 web/.next/
 web/out/
 
+# Generated reports
+reports_out/
+
 # OS noise
 .DS_Store

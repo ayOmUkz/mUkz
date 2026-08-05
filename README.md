@@ -17,7 +17,8 @@ formulas, backtesting methodology — lives in [`docs/PLAN.md`](docs/PLAN.md).
 ## Status
 
 Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust),
-**M2** (enrich & classify) and **M3** (zones & inference) are complete:
+**M2** (enrich & classify), **M3** (zones & inference) and **M4**
+(scanner, alerts, reports) are complete:
 
 - `backend/app/config.py` — validated configuration: secrets from `.env`,
   every tunable weight/threshold from `config/settings.yaml` (unknown keys
@@ -57,6 +58,21 @@ Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust),
   immutable signal per ticker-day in `signals` (re-runs never rewrite
   history), plus the provider price-levels cross-check.
 
+- `backend/app/analytics/context.py` — market/sector trend from stored
+  candles; confirmation labels (market/sector/technically confirmed,
+  conflicting, isolated). Context never creates a signal.
+- `backend/app/scanner/` — the ten ranked categories, each row with a
+  plain-English "why". Options-confirmed stays empty until evidence
+  group D (options context) is wired — an empty category is honest.
+- `backend/app/alerts/` — rule evaluation with DB-backed dedup, cooldowns
+  and a per-symbol daily cap (Redis joins at the intraday upgrade), plus
+  the one-email nightly digest.
+- `backend/app/reports/` — the per-ticker Phase-12 report (JSON +
+  markdown): summary, interpretation with both evidence columns, levels,
+  scenario map, and one of the five verdicts. Never a guaranteed
+  prediction.
+- API: `GET /scan`, `GET /alerts`, `GET /report/{ticker}` (plus the tape).
+
 Run it (with `.env` filled in):
 
 ```bash
@@ -65,11 +81,16 @@ python -m app.jobs.ingest --backfill-days 14   # the M1 exit criterion
 python -m app.jobs.probes                      # answers the plan §2 unknowns
 python -m app.jobs.enrich --backfill-days 14   # M2: context + classification
 python -m app.jobs.analyze --backfill-days 14 --crosscheck  # M3: zones + signals
-uvicorn app.api.main:app --reload              # then GET /tape?ticker=NVDA
+python -m app.jobs.nightly                     # M4: the whole chain + alerts + reports
+python -m app.jobs.report --ticker NVDA        # one Phase-12 report to stdout
+uvicorn app.api.main:app --reload              # /tape /scan /alerts /report/{ticker}
 ```
 
-Next: **M4 — Scanner, alerts, reports** (ranked categories, alert bus +
-email digest, the per-ticker report format). Roadmap in `docs/PLAN.md` §19.
+Schedule `python -m app.jobs.nightly` after the close (cron / systemd
+timer / Task Scheduler); every stage is idempotent, so re-runs are safe.
+
+Next: **M5 — Dashboard** (Next.js: overview, symbol detail with zone
+bands, the tape, glossary tooltips). Roadmap in `docs/PLAN.md` §19.
 
 ## Quickstart
 

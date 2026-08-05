@@ -194,6 +194,23 @@ signals = sa.Table(
     sa.UniqueConstraint("ticker", "as_of_date", name="uq_signals_identity"),
 )
 
+alerts = sa.Table(
+    "alerts",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("rule", sa.Text, nullable=False),
+    sa.Column("ticker", sa.Text, nullable=False),
+    sa.Column("as_of_date", sa.Date, nullable=False),
+    # Stable identity of what is being alerted about (rule:ticker:level...).
+    # Dedup/cooldown queries key on this, not on the row id.
+    sa.Column("base_key", sa.Text, nullable=False),
+    sa.Column("payload", JsonB, nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("delivered", JsonB),  # channels this alert went out on
+    sa.Index("ix_alerts_base_key", "base_key", "created_at"),
+    sa.Index("ix_alerts_asof", "as_of_date"),
+)
+
 symbol_stats = sa.Table(
     "symbol_stats",
     metadata,

@@ -188,6 +188,17 @@ class AlertsConfig(StrictModel):
     max_alerts_per_symbol_per_day: int = 5
     email_digest: bool = True
     email_per_alert_min_class: Literal["elevated", "unusual", "extreme"] = "extreme"
+    min_zone_notional: int = 50_000_000   # cumulative-notional alert threshold
+    stale_sessions: int = 5               # directional signal with no refresh -> stale
+
+
+class ScannerConfig(StrictModel):
+    min_dpss: int = 40
+    strong_zone_strength: int = 60        # "strong+" for reclaim/reject/level scans
+    near_price_atr: float = 1.0           # "likely to matter today" distance
+    approach_pct: float = 0.02            # historical zones within 2% of price
+    recent_sessions: int = 2              # window for reclaim/reject events
+    limit_per_category: int = 20
 
 
 class ApiConfig(StrictModel):
@@ -220,6 +231,7 @@ class Settings(StrictModel):
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
+    scanner: ScannerConfig = Field(default_factory=ScannerConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
