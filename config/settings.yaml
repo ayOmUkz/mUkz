@@ -108,6 +108,16 @@ backtest:
   seed: 7                     # deterministic confidence intervals
   min_cohort_n: 5
 
+intraday:
+  poll_seconds: 45            # /darkpool/recent polling cadence (plan M7's
+                              # sanctioned fallback; the websocket channel
+                              # needs the provider's Advanced plan)
+  batch_limit: 200
+  min_premium: 1000000
+  min_size: 5000
+  alert_cooldown_minutes: 30  # enforced via Redis when available
+  alert_min_class: extreme
+
 pipeline:
   run_after_close_et: "17:30"
   timezone: America/New_York

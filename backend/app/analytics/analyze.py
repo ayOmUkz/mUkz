@@ -164,10 +164,18 @@ def analyze_ticker_day(
         has_atr=atr is not None,
     )
 
+    options_tilt = None
+    if context and context.get("call_premium") is not None:
+        options_tilt = {
+            "call_premium": context["call_premium"],
+            "put_premium": context["put_premium"],
+        }
+
     if zone_summaries:
         top = max(zone_summaries, key=lambda z: z["strength_score"])
         evidence = build_evidence(
-            top["metrics"], top["status_info"], daily, current_close=current_close
+            top["metrics"], top["status_info"], daily,
+            current_close=current_close, options_tilt=options_tilt,
         )
         verdict = infer(evidence, settings.inference)
         invalidation = invalidation_conditions(

@@ -16,10 +16,9 @@ formulas, backtesting methodology — lives in [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Status
 
-Milestones **M0** (scaffold + core contracts), **M1** (ingest & trust),
-**M2** (enrich & classify), **M3** (zones & inference), **M4** (scanner,
-alerts, reports), **M5** (dashboard) and **M6** (backtesting) are
-complete:
+**All planned milestones (M0–M7) are complete**: scaffold & contracts,
+ingest & trust, enrich & classify, zones & inference, scanner/alerts/
+reports, dashboard, backtesting, and the intraday upgrade:
 
 - `backend/app/config.py` — validated configuration: secrets from `.env`,
   every tunable weight/threshold from `config/settings.yaml` (unknown keys
@@ -86,6 +85,17 @@ complete:
   bootstrap confidence intervals, and an explicit "no demonstrated edge"
   list — null results are published, not buried
   (`python -m app.jobs.backtest`, `GET /backtest`, `/backtest` page).
+- `backend/app/intraday/` — the M7 live loop: a polling collector over
+  `/darkpool/recent` (the plan's sanctioned fallback; the provider's
+  websocket needs their Advanced plan and can swap in without touching
+  anything downstream), on-the-fly size classification against the stored
+  nightly distributions, Redis-backed alert cooldowns (in-memory fallback),
+  and a `/ws/live` websocket feeding the dashboard's live card. Nightly
+  enrich remains the single writer of stored classifications.
+- Options-flow confirmation (evidence group **D**) is live: daily call/put
+  premium tilt from the verified options-volume endpoint, stored on
+  `symbol_days`, feeding the ledger and the scanner's `options_confirmed`
+  category.
 
 Run it (with `.env` filled in):
 
@@ -98,7 +108,8 @@ python -m app.jobs.analyze --backfill-days 14 --crosscheck  # M3: zones + signal
 python -m app.jobs.nightly                     # M4: the whole chain + alerts + reports
 python -m app.jobs.report --ticker NVDA        # one Phase-12 report to stdout
 python -m app.jobs.backtest                    # M6: the honest event study
-uvicorn app.api.main:app --reload              # /tape /scan /alerts /report /backtest
+python -m app.jobs.intraday                    # M7: headless live collector
+INTRADAY_ENABLED=1 uvicorn app.api.main:app    # API + collector + /ws/live
 ```
 
 Schedule `python -m app.jobs.nightly` after the close (cron / systemd
@@ -111,9 +122,10 @@ cp .env.example .env && $EDITOR .env
 docker compose up --build    # dashboard :3000, API :8000
 ```
 
-Next: **M7 — Intraday** (websocket `off_lit_trades` ingestion, Redis
-alert cooldowns, options-flow evidence group D, true intraday backtest
-horizons). Roadmap in `docs/PLAN.md` §19.
+With intraday collection running, prints accumulate with real
+`available_at` timestamps — the raw material for the intraday backtest
+horizons the EOD study honestly declined to fabricate. The design
+document remains in `docs/PLAN.md`.
 
 ## Quickstart
 

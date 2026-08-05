@@ -133,9 +133,16 @@ symbol_days = sa.Table(
     sa.Column("prior_low", sa.Numeric(18, 6)),
     sa.Column("prior_close", sa.Numeric(18, 6)),
     sa.Column("minute_bars", sa.Integer),  # VWAP coverage (0 = no minute data)
+    # M7: daily options premium tilt (evidence group D); nullable — absent
+    # when the options-volume endpoint had nothing for the ticker.
+    sa.Column("call_premium", sa.Numeric(20, 2)),
+    sa.Column("put_premium", sa.Numeric(20, 2)),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     sa.UniqueConstraint("ticker", "trading_date", name="uq_symbol_days_identity"),
 )
+
+#: Options-tilt columns added in M7 (migration 0006 guards on their absence).
+SYMBOL_DAY_OPTIONS_COLUMNS = ("call_premium", "put_premium")
 
 zones = sa.Table(
     "zones",

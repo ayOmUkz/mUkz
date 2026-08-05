@@ -28,6 +28,8 @@ from app.config import InferenceConfig
 
 #: Ratio of up-day to down-day volume that counts as asymmetric.
 VOLUME_ASYMMETRY_RATIO = 1.3
+#: Call/put premium ratio that counts as an options tilt (group D).
+OPTIONS_TILT_RATIO = 1.5
 #: Net-weight scale of the confidence squash (tanh(net / SCALE) * cap).
 CONFIDENCE_SCALE = 6.0
 
@@ -47,6 +49,7 @@ def build_evidence(
     daily: list[dict[str, Any]],
     *,
     current_close: float | None,
+    options_tilt: dict[str, Any] | None = None,
 ) -> list[Evidence]:
     """Generate ledger items from one zone + its price context."""
     items: list[Evidence] = []
@@ -137,6 +140,27 @@ def build_evidence(
                     f"down-day volume {1 / ratio:.2f}x up-day volume (CVD proxy)",
                 )
             )
+
+    # --- Group D: options confirmation (daily premium tilt) --------------
+    if options_tilt:
+        call = float(options_tilt.get("call_premium") or 0)
+        put = float(options_tilt.get("put_premium") or 0)
+        if call > 0 and put > 0:
+            tilt = call / put
+            if tilt >= OPTIONS_TILT_RATIO:
+                items.append(
+                    Evidence(
+                        "D_call_tilt", "D", +1, 1,
+                        f"options premium tilted to calls ({tilt:.1f}x puts)",
+                    )
+                )
+            elif tilt <= 1 / OPTIONS_TILT_RATIO:
+                items.append(
+                    Evidence(
+                        "D_put_tilt", "D", -1, 1,
+                        f"options premium tilted to puts ({1 / tilt:.1f}x calls)",
+                    )
+                )
     return items
 
 

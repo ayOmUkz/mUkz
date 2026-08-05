@@ -236,6 +236,17 @@ class BacktestConfig(StrictModel):
         return self.horizons[-1]
 
 
+class IntradayConfig(StrictModel):
+    poll_seconds: int = Field(default=45, ge=15)
+    batch_limit: int = Field(default=200, ge=1, le=200)  # /darkpool/recent max
+    min_premium: int = 1_000_000
+    min_size: int = 5_000
+    alert_cooldown_minutes: int = 30
+    # Intraday alerts fire only for prints classified at least this class
+    # (against the symbol's stored nightly size distribution).
+    alert_min_class: Literal["elevated", "unusual", "extreme"] = "extreme"
+
+
 class PipelineConfig(StrictModel):
     run_after_close_et: str = "17:30"
     timezone: str = "America/New_York"
@@ -255,6 +266,7 @@ class Settings(StrictModel):
     scanner: ScannerConfig = Field(default_factory=ScannerConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     backtest: BacktestConfig = Field(default_factory=BacktestConfig)
+    intraday: IntradayConfig = Field(default_factory=IntradayConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
 

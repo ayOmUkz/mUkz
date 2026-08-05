@@ -18,6 +18,7 @@ construction.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
@@ -117,6 +118,40 @@ def fetch_and_store_candles(
     return daily, minute
 
 
+def fetch_options_tilt(client: Any, ticker: str) -> dict[str, Any] | None:
+    """Daily call/put premium from the options-volume endpoint (group D).
+
+    Field naming is read tolerantly; clients without the method (older
+    fakes, restricted plans) simply yield None — the evidence ledger then
+    generates no group-D items, which is the honest default.
+    """
+    getter = getattr(client, "options_volume", None)
+    if getter is None:
+        return None
+    try:
+        rows = getter(ticker, limit=1)
+    except UWAPIError:
+        return None
+    row = rows[0] if isinstance(rows, list) and rows else rows
+    if not isinstance(row, dict):
+        return None
+
+    def _first(keys: tuple[str, ...]) -> Any:
+        for key in keys:
+            if row.get(key) is not None:
+                try:
+                    return abs(Decimal(str(row[key])))
+                except (ArithmeticError, ValueError):
+                    return None
+        return None
+
+    call = _first(("call_premium", "call_prem"))
+    put = _first(("put_premium", "put_prem"))
+    if call is None or put is None:
+        return None
+    return {"call_premium": call, "put_premium": put}
+
+
 def build_day_context(
     conn: Connection,
     ticker: str,
@@ -126,6 +161,7 @@ def build_day_context(
     settings: Settings,
     *,
     now: datetime,
+    options_tilt: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     vwap = session_vwap(minute)
     atr = compute_atr(daily, settings.enrichment.atr_period)
@@ -137,6 +173,8 @@ def build_day_context(
         "prior_low": prior_low,
         "prior_close": prior_close,
         "minute_bars": len(minute),
+        "call_premium": (options_tilt or {}).get("call_premium"),
+        "put_premium": (options_tilt or {}).get("put_premium"),
     }
     _upsert_by_key(
         conn,
@@ -242,7 +280,8 @@ def enrich_ticker_day(
         conn, client, ticker, trading_date, settings, now=now
     )
     context = build_day_context(
-        conn, ticker, trading_date, daily, minute, settings, now=now
+        conn, ticker, trading_date, daily, minute, settings, now=now,
+        options_tilt=fetch_options_tilt(client, ticker),
     )
     stats = build_symbol_stats(conn, ticker, trading_date, settings, now=now)
 

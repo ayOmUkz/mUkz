@@ -7,6 +7,8 @@ symbol-detail endpoints the Next.js dashboard consumes, plus CORS for it.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import os
 from datetime import UTC, date, datetime, time, timedelta
@@ -15,7 +17,7 @@ from functools import lru_cache
 from typing import Annotated, Any
 
 import sqlalchemy as sa
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.engine import Engine
 
@@ -33,10 +35,59 @@ from app.db import (
     symbol_days,
 )
 from app.db import zones as zones_table
+from app.intraday import live_hub
 from app.reports import build_ticker_report
 from app.scanner import scan
 
-app = FastAPI(title="Dark Pool Intelligence Engine", version="0.5.0")
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Optionally run the intraday collector inside the API process.
+
+    Enabled with ``INTRADAY_ENABLED=1`` so the ``/ws/live`` websocket and
+    the collector share one process (and one hub). Failures to start the
+    collector never take the API down — they are reported and skipped.
+    """
+    task: asyncio.Task | None = None
+    stop = asyncio.Event()
+    client = None
+    if os.environ.get("INTRADAY_ENABLED") == "1":
+        try:
+            from app.alerts.cooldown import make_cooldown_store
+            from app.client.uw_client import UWClient
+            from app.config import load_config
+            from app.db import ensure_schema
+            from app.intraday import IntradayCollector
+
+            config = load_config()
+            engine = get_engine()
+            ensure_schema(engine)
+            api_cfg = config.settings.api
+            client = UWClient(
+                config.secrets.uw_api_token,
+                base_url=api_cfg.base_url,
+                requests_per_minute=api_cfg.requests_per_minute,
+                max_retries=api_cfg.max_retries,
+                backoff_seconds=tuple(api_cfg.backoff_seconds),
+                timeout=api_cfg.timeout_seconds,
+            )
+            collector = IntradayCollector(
+                engine, client, config.settings, live_hub,
+                make_cooldown_store(config.secrets.redis_url),
+            )
+            task = asyncio.create_task(collector.run(stop_event=stop))
+        except Exception as exc:  # noqa: BLE001 — API must still serve
+            print(f"intraday collector not started: {type(exc).__name__}: {exc}")
+    yield
+    stop.set()
+    if task is not None:
+        with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+            await asyncio.wait_for(task, timeout=5)
+    if client is not None:
+        client.close()
+
+
+app = FastAPI(title="Dark Pool Intelligence Engine", version="0.7.0", lifespan=lifespan)
 
 # The dashboard runs on another origin (localhost:3000 in the default
 # docker-compose). The UW API token never travels through here — the
@@ -351,6 +402,20 @@ def _as_session_date(value: datetime) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     return value.date().isoformat()
+
+
+@app.websocket("/ws/live")
+async def ws_live(websocket: WebSocket) -> None:
+    """Live prints + intraday alerts, pushed as they arrive (M7)."""
+    await websocket.accept()
+    queue = live_hub.subscribe()
+    try:
+        while True:
+            await websocket.send_json(await queue.get())
+    except WebSocketDisconnect:
+        pass
+    finally:
+        live_hub.unsubscribe(queue)
 
 
 @app.get("/backtest")

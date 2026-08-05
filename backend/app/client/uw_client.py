@@ -304,3 +304,11 @@ class UWClient:
         return self._get(
             "/api/short_screener", {"tickers": tickers, "limit": limit, "offset": offset}
         )
+
+    def options_volume(self, ticker: str, *, limit: int = 1) -> list[dict[str, Any]]:
+        """GET /api/stock/{ticker}/options-volume — daily options volume/premium.
+
+        Feeds the options-tilt evidence (group D). One row per trading date,
+        newest first; ``limit`` up to 500 days.
+        """
+        return self._get(f"/api/stock/{ticker}/options-volume", {"limit": limit})

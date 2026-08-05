@@ -29,6 +29,9 @@ services:
       DATABASE_URL: postgresql+psycopg://darkpool:darkpool@db:5432/darkpool
       REDIS_URL: redis://redis:6379/0
       SETTINGS_PATH: /srv/config/settings.yaml
+      # Set to 1 to run the intraday collector inside the API process
+      # (live prints + alerts on the dashboard via /ws/live).
+      INTRADAY_ENABLED: ${INTRADAY_ENABLED:-0}
     volumes:
       - ./config:/srv/config:ro
     depends_on:

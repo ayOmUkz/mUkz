@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Alert, ScanResult, ScanRow, Status } from "@/lib/api";
 import { fetchJson } from "@/lib/api";
+import { LiveFeed } from "@/components/LiveFeed";
 import { Term } from "@/components/Term";
 
 function CategoryCard({
@@ -137,6 +138,8 @@ export default function Overview() {
           empty="No untested historical zone is near current price."
         />
       </div>
+
+      <LiveFeed />
 
       <section className="card">
         <h3>Alerts</h3>
